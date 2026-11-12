@@ -1,0 +1,8 @@
+{
+  "raiz": "C:\\Users\\voce\\Documents\\Projetos",
+  "repositorios": [
+    { "pasta": "meu-site", "descricao": "Site de demonstração", "frente": "Comércios" },
+    { "pasta": "clientes/loja", "nome": "Loja", "frente": "Plataformas" },
+    { "pasta": "projeto-pessoal" }
+  ]
+}

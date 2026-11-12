@@ -1,0 +1,9 @@
+node_modules/
+dist/
+
+# Dados pessoais: clientes, valores e a configuração das pastas ficam só no PC
+dados/
+
+*.log
+.env
+.env.*

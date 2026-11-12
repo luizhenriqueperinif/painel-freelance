@@ -1,0 +1,15 @@
+{
+  "oportunidades": [
+    {
+      "nome": "Site para uma padaria",
+      "frente": "Comércios",
+      "situacao": "Demonstração pronta",
+      "valorCentavos": 80000,
+      "prazo": "5 dias",
+      "link": "https://exemplo.com/demonstracao",
+      "tarefas": [{ "titulo": "Mandar a demonstração", "dia": "2026-01-15", "hora": "09:00" }]
+    },
+    { "nome": "Site para uma ONG", "frente": "ONGs", "situacao": "Ideia" }
+  ],
+  "tarefas": [{ "titulo": "Publicar o primeiro jogo", "frente": "Jogos" }]
+}
