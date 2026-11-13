@@ -1,3 +1,6 @@
+// As telas pedem tudo por aqui. No PC, os pedidos vão para o servidor local (/api).
+// No app de Android não há servidor: as mesmas ações rodam no próprio celular (celular.ts).
+
 import type {
   Frente,
   Hoje,
@@ -11,7 +14,9 @@ import type {
   Tema,
 } from '../../src/dominio/tipos.ts';
 import { CABECALHO_SEM_CONEXAO } from '../../src/dominio/tipos.ts';
-import { anotarConexao } from './conexao.ts';
+import type { Painel } from '../../src/dominio/painel.ts';
+import { noCelular, painelDoCelular } from './celular.ts';
+import { anotarConexao, SEM_COPIA } from './conexao.ts';
 
 async function pedir<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
   const resposta = await fetch(caminho, {
@@ -26,9 +31,20 @@ async function pedir<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
   return corpo as T;
 }
 
+/** No celular: roda a ação no Painel daqui e, ganhando ou perdendo, conta como está a conexão. */
+async function noAparelho<T>(acao: (painel: Painel) => Promise<T>): Promise<T> {
+  const painel = await painelDoCelular();
+  try {
+    return await acao(painel);
+  } finally {
+    const { semConexao, dadosDe } = painel.estadoDosDados();
+    anotarConexao(semConexao ? (dadosDe ?? SEM_COPIA) : null);
+  }
+}
+
 const json = (corpo: unknown) => JSON.stringify(corpo);
 
-export const api = {
+const doServidor = {
   hoje: () => pedir<Hoje & { linkDoResumoDiario: string }>('/api/hoje'),
   oportunidades: (perdidas = false) => pedir<OportunidadeComPasso[]>(`/api/oportunidades${perdidas ? '?perdidas=1' : ''}`),
   criarOportunidade: (dados: NovaOportunidade) => pedir<OportunidadeComPasso>('/api/oportunidades', { method: 'POST', body: json(dados) }),
@@ -45,3 +61,21 @@ export const api = {
   tema: () => pedir<{ tema: Tema }>('/api/tema'),
   definirTema: (tema: Tema) => pedir<{ tema: Tema }>('/api/tema', { method: 'PUT', body: json({ tema }) }),
 };
+
+const doCelular: typeof doServidor = {
+  hoje: () => noAparelho(async (p) => ({ ...(await p.hoje()), linkDoResumoDiario: p.linkDoResumoDiario() })),
+  oportunidades: (perdidas = false) => noAparelho((p) => p.listarOportunidades({ incluirPerdidas: perdidas })),
+  criarOportunidade: (dados) => noAparelho((p) => p.criarOportunidade(dados)),
+  atualizarOportunidade: (id, mudanca) => noAparelho((p) => p.atualizarOportunidade(id, mudanca)),
+  tarefas: (estado, frente) => noAparelho((p) => p.listarTarefas({ estado, frente })),
+  criarTarefa: (dados) => noAparelho((p) => p.criarTarefa(dados)),
+  atualizarTarefa: (id, mudanca) => noAparelho((p) => p.atualizarTarefa(id, mudanca)),
+  apagarTarefa: (id) => noAparelho((p) => p.apagarTarefa(id)),
+  // As pastas de código só existem no PC.
+  repositorios: () => Promise.reject(new Error('A tela Repositórios só funciona no PC.')),
+  definirFrenteDoRepositorio: (nome, frente) => noAparelho((p) => p.definirFrenteDoRepositorio(nome, frente)),
+  tema: () => noAparelho(async (p) => ({ tema: await p.tema() })),
+  definirTema: (tema) => noAparelho(async (p) => ({ tema: await p.definirTema(tema) })),
+};
+
+export const api = noCelular ? doCelular : doServidor;

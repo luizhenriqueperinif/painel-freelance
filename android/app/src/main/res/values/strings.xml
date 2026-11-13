@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Painel do Freelance</string>
+    <string name="title_activity_main">Painel do Freelance</string>
+    <string name="package_name">com.painelfreelance.app</string>
+    <string name="custom_url_scheme">com.painelfreelance.app</string>
+</resources>

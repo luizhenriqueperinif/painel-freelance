@@ -49,6 +49,32 @@ Pode rodar de novo quando quiser: o que já está feito fica como está. Para ti
 
 Toda vez que o painel liga, ele traz a versão nova do código do GitHub, desde que o PC esteja no ramo `main` e sem mudanças por fazer. O registro fica em `dados/servidor.log`.
 
+## App de Android
+
+O app tem as mesmas telas (menos Repositórios, que depende das pastas do PC) e fala direto com o repositório de dados no GitHub, sem precisar do PC ligado.
+
+- **Primeiro uso:** o app abre em "ajustes". Coloque o repositório de dados (`dono/nome`) e cole um token do GitHub criado só para ele (o passo a passo está na própria tela: fine-grained token, só o repositório de dados, permissão Contents: Read and write). O token fica guardado só no celular e não vai para o backup do Google. Se perder o celular, revogue o token no GitHub.
+- **Avisos:** cada tarefa aberta com hora avisa 15 minutos antes e na hora. Com o app fechado, ele confere o GitHub a cada 15 minutos (o menor intervalo que o Android aceita), então uma tarefa criada no PC ou pelo Claude também avisa no celular. Concluída ou apagada, o aviso some.
+- **No Redmi (e em outros Xiaomi):** nos ajustes do app no Android, ligue "Início automático" e deixe a bateria "Sem restrições". Sem isso o sistema corta a conferência por trás.
+- **Sem internet:** igual ao PC, mostra a última leitura com aviso e não grava.
+
+O APK não leva token nem dado nenhum, então serve para qualquer pessoa, cada uma com o próprio repositório de dados.
+
+**Instalar ou atualizar:** abra no navegador do celular https://github.com/luizhenriqueperinif/painel-freelance/releases/latest/download/painel-freelance.apk, baixe e toque em Instalar (na primeira vez o Android pede para permitir instalar apps do navegador). Quando sai uma versão nova, o próprio app avisa no topo com o botão "Baixar". Instalar por cima mantém o token e os dados. O Android não deixa um app de fora da Play Store se atualizar sem um toque de confirmação.
+
+Para lançar uma versão nova: aumente `version` no `package.json`, gere o APK e publique uma Release com a tag `v` + versão e o arquivo com o nome `painel-freelance.apk`. O APK é assinado com a chave de debug do PC onde foi gerado; para instalar por cima, as versões precisam sair do mesmo PC.
+
+Para gerar o APK (precisa do Android Studio ou do SDK do Android e do Java 21):
+
+```
+npm run build
+npx cap sync android
+cd android
+gradlew assembleDebug
+```
+
+O arquivo sai em `android/app/build/outputs/apk/debug/app-debug.apk`. A parte nativa (avisos, conferência por trás e onde o token fica) está em `android/app/src/main/java/com/painelfreelance/app/`.
+
 ## Como rodar à mão
 
 ```

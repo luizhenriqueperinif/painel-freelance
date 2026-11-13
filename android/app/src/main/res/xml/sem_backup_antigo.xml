@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Para Android 11 e anteriores: o token e a cópia dos dados ficam fora do backup. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="." />
+</full-backup-content>

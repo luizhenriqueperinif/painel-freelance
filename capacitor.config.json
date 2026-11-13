@@ -1,0 +1,14 @@
+{
+  "appId": "com.painelfreelance.app",
+  "appName": "Painel do Freelance",
+  "webDir": "dist",
+  "android": {
+    "path": "android"
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "DARK"
+    }
+  }
+}

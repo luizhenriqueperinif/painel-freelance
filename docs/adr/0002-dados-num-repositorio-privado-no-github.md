@@ -18,6 +18,7 @@ A alternativa mais forte era um banco no Supabase com login por e-mail e senha. 
 - Vários aparelhos gravam no mesmo arquivo. Cada gravação diz qual versão leu; se a versão já mudou, o painel lê de novo e refaz só aquela mudança. Se dois aparelhos mexem no mesmo item, vale a última gravação.
 - O painel inteiro cabe num arquivo só. Serve para o volume de uma pessoa; não é um banco de dados.
 - Sem internet o painel mostra a última leitura, que fica guardada no aparelho, com um aviso de quando ela é, e não grava. Guardar mudanças feitas sem internet para enviar depois não faz parte desta decisão.
-- A tela Repositórios continua dependendo do PC. Só o app de desktop lê as pastas; ele grava o resumo no arquivo, e o celular mostra a última leitura.
+- A tela Repositórios continua dependendo do PC e não aparece no celular. O app de desktop em Electron saiu do plano em 13/11/2026: o atalho que liga o painel sem janela e o instalador já resolvem o PC.
+- No Android, os avisos das tarefas com hora e a conferência do arquivo a cada 15 minutos são uma parte nativa pequena do app, e não o plugin pronto de tarefa em segundo plano: aquele plugin só agenda avisos e não cancela, então uma tarefa concluída no PC continuaria avisando no celular.
 - As ações continuam numa camada única (ADR 0001). Ela não usa nada do Node, porque o app de Android não tem servidor local, e fala com os dados por um armazém que pode ser trocado.
 - O servidor MCP lê e grava no mesmo arquivo, para o Claude continuar gerenciando o painel.

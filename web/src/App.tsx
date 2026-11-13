@@ -3,21 +3,26 @@ import { diaDeHoje, horaEmBrasilia } from '../../src/dominio/datas.ts';
 import { TEMAS, type Tema } from '../../src/dominio/tipos.ts';
 import { api } from './api.ts';
 import { pedirAtualizacao } from './componentes.tsx';
+import { LINK_DO_APK, procurarVersaoNova } from './atualizacao.ts';
+import { lerConfiguracao, noCelular } from './celular.ts';
 import { SEM_COPIA, useDadosDe } from './conexao.ts';
 import { quando } from './formato.ts';
+import { PaginaAjustes } from './paginas/Ajustes.tsx';
 import { PaginaHoje } from './paginas/Hoje.tsx';
 import { PaginaFrentes } from './paginas/Frentes.tsx';
 import { PaginaRepositorios } from './paginas/Repositorios.tsx';
 import { PaginaTarefas } from './paginas/Tarefas.tsx';
 
-export type NomeDaPagina = 'hoje' | 'frentes' | 'repositorios' | 'tarefas';
+export type NomeDaPagina = 'hoje' | 'frentes' | 'repositorios' | 'tarefas' | 'ajustes';
 
+// As pastas de código só existem no PC; os ajustes (token e avisos) só existem no celular.
 const PAGINAS: { nome: NomeDaPagina; rotulo: string }[] = [
   { nome: 'hoje', rotulo: 'Hoje' },
   { nome: 'frentes', rotulo: 'Frentes' },
-  { nome: 'repositorios', rotulo: 'Repositórios' },
+  ...(noCelular ? [] : [{ nome: 'repositorios' as const, rotulo: 'Repositórios' }]),
   { nome: 'tarefas', rotulo: 'Tarefas' },
 ];
+const PAGINAS_ESCONDIDAS: NomeDaPagina[] = noCelular ? ['ajustes'] : [];
 
 const COR_DO_TEMA: Record<Tema, string> = {
   coral: '#ff5a4e',
@@ -42,7 +47,8 @@ export interface Rota {
 
 function lerRota(): Rota {
   const [caminho = '', busca = ''] = window.location.hash.replace(/^#\/?/, '').split('?');
-  const pagina = PAGINAS.some((p) => p.nome === caminho) ? (caminho as NomeDaPagina) : 'hoje';
+  const conhecida = PAGINAS.some((p) => p.nome === caminho) || PAGINAS_ESCONDIDAS.includes(caminho as NomeDaPagina);
+  const pagina = conhecida ? (caminho as NomeDaPagina) : 'hoje';
   return { pagina, parametros: new URLSearchParams(busca) };
 }
 
@@ -103,6 +109,11 @@ export function Topo({ titulo, sub }: { titulo: string; sub: string }) {
       <button type="button" className="btn-texto" onClick={pedirAtualizacao}>
         atualizar
       </button>
+      {noCelular && (
+        <a className="btn-texto" href="#/ajustes" aria-current={rota.pagina === 'ajustes' ? 'page' : undefined}>
+          ajustes
+        </a>
+      )}
     </header>
   );
 }
@@ -136,8 +147,31 @@ function AvisoSemConexao() {
   );
 }
 
+/** No celular: avisa quando há versão nova do app para baixar. */
+function AvisoDeVersaoNova() {
+  const [versao, setVersao] = useState<string | null>(null);
+  useEffect(() => {
+    if (noCelular) void procurarVersaoNova().then(setVersao);
+  }, []);
+  if (!versao) return null;
+  return (
+    <p className="aviso" role="status" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <span style={{ flex: 1 }}>Versão nova do app: {versao}. Baixe e toque em Instalar; o token e os dados continuam.</span>
+      <a className="btn corte-p" href={LINK_DO_APK} target="_blank" rel="noreferrer">
+        Baixar
+      </a>
+    </p>
+  );
+}
+
 export function App() {
   const [rota, setRota] = useState<Rota>(lerRota);
+  // No celular, sem repositório e token guardados, a primeira tela é a de ajustes.
+  const [configurado, setConfigurado] = useState<boolean | null>(noCelular ? null : true);
+
+  useEffect(() => {
+    if (noCelular) void lerConfiguracao().then((atual) => setConfigurado(atual !== null)).catch(() => setConfigurado(false));
+  }, []);
 
   useEffect(() => {
     try {
@@ -146,14 +180,20 @@ export function App() {
     } catch {
       /* ignora */
     }
-    api.tema().then(({ tema }) => aplicarTema(tema)).catch(() => undefined);
     const mudou = () => setRota(lerRota());
     window.addEventListener('hashchange', mudou);
     return () => window.removeEventListener('hashchange', mudou);
   }, []);
 
+  useEffect(() => {
+    if (configurado) api.tema().then(({ tema }) => aplicarTema(tema)).catch(() => undefined);
+  }, [configurado]);
+
   const pagina = useCallback(() => {
+    if (configurado === false) return <PaginaAjustes primeiraVez aoConfigurar={() => setConfigurado(true)} />;
     switch (rota.pagina) {
+      case 'ajustes':
+        return <PaginaAjustes />;
       case 'frentes':
         return <PaginaFrentes />;
       case 'repositorios':
@@ -163,11 +203,13 @@ export function App() {
       default:
         return <PaginaHoje />;
     }
-  }, [rota]);
+  }, [rota, configurado]);
 
+  if (configurado === null) return <div className="pagina" />;
   return (
     <div className="pagina">
-      <AvisoSemConexao />
+      <AvisoDeVersaoNova />
+      {configurado && <AvisoSemConexao />}
       {pagina()}
     </div>
   );
