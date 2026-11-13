@@ -28,7 +28,28 @@ dados          banco e configuração pessoal (fora do git)
 
 As regras ficam em `src/dominio/painel.ts` e não sabem onde os dados moram: elas falam com um armazém, que pode ser o SQLite do PC ou um arquivo num repositório privado do GitHub.
 
-## Como rodar
+## Instalar num PC (Windows)
+
+Num PC novo, abra o PowerShell e cole:
+
+```
+irm https://raw.githubusercontent.com/luizhenriqueperinif/painel-freelance/main/scripts/instalar.ps1 -OutFile $env:TEMP\instalar.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\instalar.ps1
+```
+
+Num PC que já tem o código, dê dois cliques no `instalar.cmd`. O instalador:
+
+1. instala o git e o Node 24 pelo winget, se faltarem (pergunta antes);
+2. baixa o código em `Documentos\Projetos\painel-freelance` e monta as telas;
+3. pergunta qual é o repositório privado de dados e confere se o git do PC enxerga ele (se o GitHub pedir login, é você que entra, na janela dele);
+4. lista as pastas com git ao lado do painel em `dados/repositorios.json`;
+5. cria o atalho "Painel do Freelance" na área de trabalho e faz o painel ligar sozinho, sem janela, quando o Windows abre;
+6. liga o painel ao Claude Code, se ele estiver instalado.
+
+Pode rodar de novo quando quiser: o que já está feito fica como está. Para tirar o início automático, apague o atalho "Painel do Freelance" da pasta que abre com `Win + R` e `shell:startup`.
+
+Toda vez que o painel liga, ele traz a versão nova do código do GitHub, desde que o PC esteja no ramo `main` e sem mudanças por fazer. O registro fica em `dados/servidor.log`.
+
+## Como rodar à mão
 
 ```
 npm install
@@ -36,7 +57,7 @@ copy repositorios.exemplo.json dados\repositorios.json   (e ajuste as pastas)
 npm start
 ```
 
-Abre em http://localhost:5180. No Windows, o `iniciar.cmd` faz tudo isso e abre o navegador.
+Abre em http://localhost:5180. O `iniciar.cmd` liga o painel sem janela e abre o navegador (se já estiver ligado, só abre).
 
 Para desenvolver: `npm run dev` (site em http://localhost:5173, com recarga automática). Testes: `npm test`.
 
