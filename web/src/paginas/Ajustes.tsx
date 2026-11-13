@@ -15,6 +15,7 @@ export function PaginaAjustes({ primeiraVez = false, aoConfigurar }: { primeiraV
   const [recado, setRecado] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [estado, setEstado] = useState<EstadoDosAvisos | null>(null);
+  const [recadoDoTeste, setRecadoDoTeste] = useState<string | null>(null);
 
   const lerEstado = () => avisos.estado().then(setEstado).catch(() => undefined);
 
@@ -25,6 +26,10 @@ export function PaginaAjustes({ primeiraVez = false, aoConfigurar }: { primeiraV
       setTemToken(true);
     });
     void lerEstado();
+    // Ao voltar dos ajustes do Android (permissão, bateria), a tela mostra o estado novo.
+    const voltou = () => document.visibilityState === 'visible' && void lerEstado();
+    document.addEventListener('visibilitychange', voltou);
+    return () => document.removeEventListener('visibilitychange', voltou);
   }, []);
 
   const salvar = async (e: FormEvent) => {
@@ -65,6 +70,9 @@ export function PaginaAjustes({ primeiraVez = false, aoConfigurar }: { primeiraV
     window.location.reload();
   };
 
+  // Só o nome, sem o dono: é o que aparece na lista do GitHub ao escolher o repositório.
+  const nomeDoRepositorio = repositorio.trim().split('/').pop() ?? '';
+  const emTexto = (instante: Date) => quando({ dia: diaDeHoje(instante), hora: horaEmBrasilia(instante) }, diaDeHoje());
   const ultima = estado?.ultimaConferencia ? new Date(estado.ultimaConferencia) : null;
 
   return (
@@ -93,11 +101,26 @@ export function PaginaAjustes({ primeiraVez = false, aoConfigurar }: { primeiraV
         </label>
         <details className="suave" style={{ fontSize: 14 }}>
           <summary style={{ cursor: 'pointer' }}>Como criar o token</summary>
-          <ol style={{ paddingLeft: 20, margin: '8px 0 0' }}>
-            <li>No GitHub: foto do perfil, Settings, Developer settings, Personal access tokens, Fine-grained tokens, Generate new token.</li>
-            <li>Em Repository access, escolha Only select repositories e marque só o repositório de dados.</li>
-            <li>Em Permissions, Repository permissions, Contents: Read and write.</li>
-            <li>Gere, copie e cole aqui. O token fica só neste celular; se perder o aparelho, revogue no GitHub.</li>
+          <ol style={{ paddingLeft: 20, margin: '8px 0 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <li>
+              No GitHub, toque na sua foto e depois em <b>Settings</b>.
+            </li>
+            <li>
+              Lá embaixo: <b>Developer settings</b>, <b>Personal access tokens</b>, <b>Fine-grained tokens</b>, <b>Generate new token</b>.
+            </li>
+            <li>
+              <b>Token name</b>: Painel no celular. <b>Expiration</b>: 1 ano (quando vencer, gere outro e cole aqui).
+            </li>
+            <li>
+              <b>Repository access</b>: <b>Only select repositories</b> e escolha só <b>{nomeDoRepositorio || 'o repositório de dados'}</b>. Não é o repositório do código do painel.
+            </li>
+            <li>
+              <b>Permissions</b>: <b>Add permissions</b>, <b>Contents</b>, mude para <b>Read and write</b>. O Metadata: Read-only o GitHub põe sozinho.
+            </li>
+            <li>
+              <b>Generate token</b>, copie o código (começa com github_pat_; o GitHub só mostra uma vez) e cole acima.
+            </li>
+            <li>O token fica só neste celular. Se perder o aparelho, apague o token no GitHub.</li>
           </ol>
         </details>
         <Erro mensagem={erro} />
@@ -128,6 +151,8 @@ export function PaginaAjustes({ primeiraVez = false, aoConfigurar }: { primeiraV
                 Última conferência por trás:{' '}
                 {ultima ? quando({ dia: diaDeHoje(ultima), hora: horaEmBrasilia(ultima) }, diaDeHoje()) : 'ainda não aconteceu (roda a cada 15 minutos com o app fechado)'}
               </li>
+              <li>Dados guardados no celular: {estado.dadosDe ? emTexto(new Date(estado.dadosDe)) : 'nenhum ainda (toque em atualizar)'}</li>
+              <li>Próximo aviso: {estado.proximo ? `${estado.proximo.titulo}, ${emTexto(new Date(estado.proximo.quando))}` : 'nenhum (só tarefas abertas com hora, nos próximos 30 dias)'}</li>
               {estado.problema && <li>Problema na última conferência: {estado.problema}</li>}
             </ul>
           )}
@@ -137,10 +162,26 @@ export function PaginaAjustes({ primeiraVez = false, aoConfigurar }: { primeiraV
                 Permitir avisos
               </button>
             )}
+            <button
+              type="button"
+              className="btn2"
+              onClick={() =>
+                void avisos.testar().then(({ mostrou }) =>
+                  setRecadoDoTeste(mostrou ? 'Aviso de teste enviado. Se não apareceu, o Redmi está escondendo as notificações do app.' : 'O Android não deixa o app notificar: toque em Permitir avisos.'),
+                )
+              }
+            >
+              Mandar um aviso de teste agora
+            </button>
             <button type="button" className="btn2" onClick={() => void avisos.abrirAjustes()}>
               Abrir os ajustes do app no Android
             </button>
           </div>
+          {recadoDoTeste && (
+            <p role="status" style={{ margin: '10px 0 0' }}>
+              {recadoDoTeste}
+            </p>
+          )}
           <p className="suave" style={{ fontSize: 14, margin: '12px 0 0' }}>
             No Redmi, para a conferência por trás não ser cortada: nos ajustes do app, ligue Início automático e, em Economia de bateria, escolha Sem restrições.
           </p>

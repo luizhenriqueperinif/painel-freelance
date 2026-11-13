@@ -60,9 +60,17 @@ O app tem as mesmas telas (menos Repositórios, que depende das pastas do PC) e 
 
 O APK não leva token nem dado nenhum, então serve para qualquer pessoa, cada uma com o próprio repositório de dados.
 
-**Instalar ou atualizar:** abra no navegador do celular https://github.com/luizhenriqueperinif/painel-freelance/releases/latest/download/painel-freelance.apk, baixe e toque em Instalar (na primeira vez o Android pede para permitir instalar apps do navegador). Quando sai uma versão nova, o próprio app avisa no topo com o botão "Baixar". Instalar por cima mantém o token e os dados. O Android não deixa um app de fora da Play Store se atualizar sem um toque de confirmação.
+**Instalar:** abra no navegador do celular https://github.com/luizhenriqueperinif/painel-freelance/releases/latest/download/painel-freelance.apk, baixe e toque em Instalar (na primeira vez o Android pede para permitir instalar apps do navegador).
 
-Para lançar uma versão nova: aumente `version` no `package.json`, gere o APK e publique uma Release com a tag `v` + versão e o arquivo com o nome `painel-freelance.apk`. O APK é assinado com a chave de debug do PC onde foi gerado; para instalar por cima, as versões precisam sair do mesmo PC.
+**Atualizar:** as telas se atualizam sozinhas. O app confere as Releases ao abrir e a cada hora; quando sai uma versão nova, ele baixa as telas e passa a usá-las logo ao abrir ou quando volta para a frente. Se as telas novas não abrirem direito, o app volta para as anteriores em 30 segundos. Só quando a parte Android muda (avisos, onde o token fica) é preciso instalar um APK novo: aí o app avisa no topo com o botão "Baixar". Instalar por cima mantém o token e os dados. O Android não deixa um app de fora da Play Store se instalar sem um toque de confirmação.
+
+**Lançar uma versão nova:** aumente `version` no `package.json`. Se mexeu na parte Android (Java ou manifesto), aumente também `versaoDaParteAndroid`. Faça o commit e o push na main e rode:
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\publicar-android.ps1
+```
+
+O script gera as telas e o APK e publica a Release com os dois arquivos (`painel-freelance.apk` e `telas.zip`). O APK é assinado com a chave de debug do PC onde foi gerado; para instalar por cima, os APKs precisam sair do mesmo PC.
 
 Para gerar o APK (precisa do Android Studio ou do SDK do Android e do Java 21):
 

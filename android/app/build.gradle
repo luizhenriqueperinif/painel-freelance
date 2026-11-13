@@ -1,6 +1,7 @@
 apply plugin: 'com.android.application'
 
-def versaoDoPainel = new groovy.json.JsonSlurper().parse(file('../../package.json')).version
+def pacoteDoPainel = new groovy.json.JsonSlurper().parse(file('../../package.json'))
+def versaoDoPainel = pacoteDoPainel.version
 
 android {
     namespace = "com.painelfreelance.app"
@@ -12,12 +13,17 @@ android {
         // A versão vem do package.json, a mesma que o app mostra e compara com a da Release.
         versionCode versaoDoPainel.tokenize('.').collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] }
         versionName versaoDoPainel
+        // Sobe a cada mudança na parte Android (Java, manifesto). Telas que pedem uma parte mais nova só entram com APK novo.
+        buildConfigField "int", "PARTE_ANDROID", String.valueOf(pacoteDoPainel.versaoDaParteAndroid as int)
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
+    }
+    buildFeatures {
+        buildConfig = true
     }
     buildTypes {
         release {

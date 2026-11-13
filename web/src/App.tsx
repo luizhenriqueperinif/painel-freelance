@@ -4,7 +4,7 @@ import { TEMAS, type Tema } from '../../src/dominio/tipos.ts';
 import { api } from './api.ts';
 import { pedirAtualizacao } from './componentes.tsx';
 import { LINK_DO_APK, procurarVersaoNova } from './atualizacao.ts';
-import { lerConfiguracao, noCelular } from './celular.ts';
+import { avisos, lerConfiguracao, noCelular } from './celular.ts';
 import { SEM_COPIA, useDadosDe } from './conexao.ts';
 import { quando } from './formato.ts';
 import { PaginaAjustes } from './paginas/Ajustes.tsx';
@@ -148,15 +148,60 @@ function AvisoSemConexao() {
 }
 
 /** No celular: avisa quando há versão nova do app para baixar. */
+/**
+ * No celular: confirma que estas telas abriram (senão o app volta às anteriores) e procura versão
+ * nova. Telas novas entram sozinhas: logo ao abrir o app, ou quando ele volta para a frente.
+ * Só quando a versão nova precisa de um APK é que aparece o aviso com "Baixar".
+ */
 function AvisoDeVersaoNova() {
   const [versao, setVersao] = useState<string | null>(null);
   useEffect(() => {
-    if (noCelular) void procurarVersaoNova().then(setVersao);
+    if (!noCelular) return;
+    // Um APK antigo não tem estas funções: aí só sobra o aviso com "Baixar".
+    avisos.telasFuncionaram().catch(() => undefined);
+    const abertoEm = Date.now();
+    let pronta: string | null = null;
+    const precisaApk = new Set<string>();
+    let conferindo = false;
+    const conferir = async () => {
+      if (conferindo) return;
+      conferindo = true;
+      try {
+        const nova = await procurarVersaoNova();
+        if (!nova || precisaApk.has(nova.versao) || pronta === nova.versao) return;
+        if (!nova.telas) {
+          precisaApk.add(nova.versao);
+          setVersao(nova.versao);
+          return;
+        }
+        const baixadas = await avisos.baixarTelas({ endereco: nova.telas, versao: nova.versao });
+        if (!baixadas.pronta) {
+          precisaApk.add(nova.versao);
+          setVersao(nova.versao);
+        } else if (Date.now() - abertoEm < 15_000) {
+          await avisos.usarTelas({ versao: nova.versao });
+        } else {
+          pronta = nova.versao;
+        }
+      } catch {
+        /* sem internet ou APK antigo: confere de novo depois */
+      } finally {
+        conferindo = false;
+      }
+    };
+    void conferir();
+    const voltou = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (pronta) void avisos.usarTelas({ versao: pronta }).catch(() => undefined);
+      else void conferir();
+    };
+    document.addEventListener('visibilitychange', voltou);
+    return () => document.removeEventListener('visibilitychange', voltou);
   }, []);
   if (!versao) return null;
   return (
     <p className="aviso" role="status" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-      <span style={{ flex: 1 }}>Versão nova do app: {versao}. Baixe e toque em Instalar; o token e os dados continuam.</span>
+      <span style={{ flex: 1 }}>Versão nova do app: {versao}. Esta precisa ser instalada: baixe e toque em Instalar; o token e os dados continuam.</span>
       <a className="btn corte-p" href={LINK_DO_APK} target="_blank" rel="noreferrer">
         Baixar
       </a>

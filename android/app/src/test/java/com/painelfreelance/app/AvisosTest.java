@@ -52,6 +52,13 @@ public class AvisosTest {
     }
 
     @Test
+    public void textoDoAviso() throws JSONException {
+        List<Avisos.Aviso> avisos = Avisos.calcular(DADOS, AGORA);
+        assertEquals("Começa às 14:00, daqui a 15 minutos", Avisos.texto(avisos.get(1)));
+        assertEquals("Começa agora, às 14:00", Avisos.texto(avisos.get(2)));
+    }
+
+    @Test
     public void semDadosNaoHaAviso() throws JSONException {
         assertEquals(0, Avisos.calcular(null, AGORA).size());
         assertEquals(0, Avisos.calcular("{\"formato\": 1}", AGORA).size());

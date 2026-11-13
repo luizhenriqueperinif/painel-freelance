@@ -8,6 +8,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // O plugin do próprio app precisa ser registrado antes de a tela subir.
         registerPlugin(AvisosPlugin.class);
+        // Telas novas que não chegaram a abrir da última vez: volta às anteriores antes de carregar.
+        Telas.desfazerSeNaoConfirmou(this);
         super.onCreate(savedInstanceState);
         Avisos.criarCanal(this);
         // Garante a conferência por trás; se já estiver marcada, nada muda.

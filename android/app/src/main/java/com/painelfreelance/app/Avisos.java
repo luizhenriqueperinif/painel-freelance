@@ -197,25 +197,44 @@ final class Avisos {
         return NotificationManagerCompat.from(contexto).areNotificationsEnabled();
     }
 
+    /** O coral do painel: pinta o ícone e o nome do app no aviso. */
+    private static final int CORAL = 0xFFFF5A4E;
+
+    /** O texto do aviso, sem o título: quando começa. O cliente ou a frente vão no cabeçalho. */
+    static String texto(Aviso aviso) {
+        return aviso.antes ? "Começa às " + aviso.hora + ", daqui a 15 minutos" : "Começa agora, às " + aviso.hora;
+    }
+
     static void mostrar(Context contexto, Aviso aviso) {
+        mostrar(contexto, aviso.codigo(), aviso.titulo, texto(aviso), aviso.ligacao, aviso.inicio);
+    }
+
+    /** Um aviso na hora, para conferir se as notificações chegam. */
+    static void mostrarTeste(Context contexto) {
+        mostrar(contexto, 0, "Aviso de teste", "Os avisos das tarefas estão funcionando neste celular.", null, System.currentTimeMillis());
+    }
+
+    private static void mostrar(Context contexto, int codigo, String titulo, String texto, String ligacao, long quando) {
         if (!podeNotificar(contexto)) return;
         criarCanal(contexto);
         Intent abrir = contexto.getPackageManager().getLaunchIntentForPackage(contexto.getPackageName());
         PendingIntent aoTocar = PendingIntent.getActivity(contexto, 0, abrir, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        String quando = aviso.antes ? "Daqui a 15 minutos, às " + aviso.hora : "Agora, " + aviso.hora;
-        String texto = aviso.ligacao == null || aviso.ligacao.isEmpty() ? quando : quando + " · " + aviso.ligacao;
         NotificationCompat.Builder notificacao = new NotificationCompat.Builder(contexto, CANAL)
             .setSmallIcon(R.drawable.ic_aviso)
-            .setContentTitle(aviso.titulo)
+            .setColor(CORAL)
+            .setContentTitle(titulo)
             .setContentText(texto)
-            .setWhen(aviso.inicio)
+            // Aberto, o aviso mostra o título inteiro em vez de cortar com "...".
+            .setStyle(new NotificationCompat.BigTextStyle().setBigContentTitle(titulo).bigText(texto))
+            .setWhen(quando)
             .setShowWhen(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setContentIntent(aoTocar)
             .setAutoCancel(true);
+        if (ligacao != null && !ligacao.isEmpty()) notificacao.setSubText(ligacao);
         try {
-            NotificationManagerCompat.from(contexto).notify(aviso.codigo(), notificacao.build());
+            NotificationManagerCompat.from(contexto).notify(codigo, notificacao.build());
         } catch (SecurityException semPermissao) {
             // A permissão foi tirada entre a conferência e o aviso: não há o que mostrar.
         }

@@ -1,6 +1,7 @@
 {
   "name": "painel-freelance",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "versaoDaParteAndroid": 1,
   "private": true,
   "description": "Painel pessoal para organizar o freelance: frentes, oportunidades, tarefas e os repositórios do PC. O Claude Code gerencia pelo MCP.",
   "type": "module",

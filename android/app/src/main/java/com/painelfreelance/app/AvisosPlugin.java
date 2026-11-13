@@ -106,6 +106,20 @@ public class AvisosPlugin extends Plugin {
         if (guardados.contains(Guardados.ULTIMA_CONFERENCIA)) resposta.put("ultimaConferencia", (double) guardados.getLong(Guardados.ULTIMA_CONFERENCIA, 0));
         String problema = guardados.getString(Guardados.ULTIMO_PROBLEMA, null);
         if (problema != null) resposta.put("problema", problema);
+        if (guardados.contains(Guardados.LIDA_EM)) resposta.put("dadosDe", (double) guardados.getLong(Guardados.LIDA_EM, 0));
+        // O próximo aviso que a leitura guardada pede: mostra se o celular enxergou a tarefa.
+        try {
+            java.util.List<Avisos.Aviso> proximos = Avisos.calcular(guardados.getString(Guardados.TEXTO, null), System.currentTimeMillis());
+            if (!proximos.isEmpty()) {
+                Avisos.Aviso proximo = proximos.get(0);
+                JSObject aviso = new JSObject();
+                aviso.put("titulo", proximo.titulo);
+                aviso.put("quando", (double) proximo.quando());
+                resposta.put("proximo", aviso);
+            }
+        } catch (org.json.JSONException erro) {
+            resposta.put("problema", "a leitura guardada no celular não deu para ler");
+        }
         call.resolve(resposta);
     }
 
@@ -122,6 +136,69 @@ public class AvisosPlugin extends Plugin {
     @PermissionCallback
     private void depoisDaPermissao(PluginCall call) {
         estado(call);
+    }
+
+    /** Mostra um aviso na hora, sem agendar: separa problema de permissão de problema de agendamento. */
+    @PluginMethod
+    public void testar(PluginCall call) {
+        JSObject resposta = new JSObject();
+        boolean pode = Avisos.podeNotificar(contexto());
+        if (pode) {
+            Avisos.mostrarTeste(contexto());
+        }
+        resposta.put("mostrou", pode);
+        call.resolve(resposta);
+    }
+
+    /** Baixa as telas de uma versão nova (telas.zip da Release), sem trocar ainda. */
+    @PluginMethod
+    public void baixarTelas(PluginCall call) {
+        String endereco = call.getString("endereco", "");
+        String versao = call.getString("versao", "");
+        JSObject resposta = new JSObject();
+        if (Telas.recusada(contexto(), versao)) {
+            resposta.put("recusada", true);
+            call.resolve(resposta);
+            return;
+        }
+        new Thread(() -> {
+            try {
+                if (Telas.baixar(contexto(), endereco, versao) == null) resposta.put("precisaApk", true);
+                else resposta.put("pronta", true);
+                call.resolve(resposta);
+            } catch (Exception erro) {
+                call.reject("Não deu para baixar as telas novas: " + erro.getMessage());
+            }
+        }).start();
+    }
+
+    /** Passa a usar as telas baixadas. A tela recarrega; se não confirmar em 30 segundos, volta às anteriores. */
+    @PluginMethod
+    public void usarTelas(PluginCall call) {
+        String versao = call.getString("versao", "");
+        java.io.File pasta = new java.io.File(Telas.raiz(contexto()), versao);
+        if (!versao.matches("[0-9]+(\\.[0-9]+)*") || !new java.io.File(pasta, "index.html").isFile()) {
+            call.reject("As telas dessa versão não foram baixadas.");
+            return;
+        }
+        call.resolve();
+        Telas.usar(contexto(), getBridge(), pasta);
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+            () -> {
+                String volta = Telas.desfazerSeNaoConfirmou(contexto());
+                if (volta == null) return;
+                if (volta.isEmpty()) getBridge().setServerAssetPath("public");
+                else getBridge().setServerBasePath(volta);
+            },
+            30_000
+        );
+    }
+
+    /** As telas abriram direito: a troca fica valendo. */
+    @PluginMethod
+    public void telasFuncionaram(PluginCall call) {
+        Telas.confirmar(contexto());
+        call.resolve();
     }
 
     /** Abre a página do app nas configurações do Android: no Redmi é lá que se libera o início automático e a bateria. */

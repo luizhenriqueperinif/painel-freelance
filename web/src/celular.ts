@@ -21,6 +21,10 @@ export interface EstadoDosAvisos {
   /** Quando a conferência por trás leu o GitHub pela última vez (ms). */
   ultimaConferencia?: number;
   problema?: string;
+  /** Quando foi feita a leitura dos dados guardada no celular (ms). */
+  dadosDe?: number;
+  /** O próximo aviso marcado pela leitura guardada. */
+  proximo?: { titulo: string; quando: number };
 }
 
 interface PluginAvisos {
@@ -32,6 +36,10 @@ interface PluginAvisos {
   estado(): Promise<EstadoDosAvisos>;
   pedirPermissao(): Promise<EstadoDosAvisos>;
   abrirAjustes(): Promise<void>;
+  testar(): Promise<{ mostrou: boolean }>;
+  baixarTelas(pacote: { endereco: string; versao: string }): Promise<{ pronta?: boolean; precisaApk?: boolean; recusada?: boolean }>;
+  usarTelas(pacote: { versao: string }): Promise<void>;
+  telasFuncionaram(): Promise<void>;
 }
 
 export const avisos = registerPlugin<PluginAvisos>('Avisos');
