@@ -5,6 +5,11 @@ export function diaDeHoje(agora: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: FUSO, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
 }
 
+/** Hora (HH:MM) de um instante no horário de Brasília. */
+export function horaEmBrasilia(instante: Date): string {
+  return new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(instante);
+}
+
 export function somarDias(dia: string, dias: number): string {
   const [a, m, d] = dia.split('-').map(Number) as [number, number, number];
   return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);

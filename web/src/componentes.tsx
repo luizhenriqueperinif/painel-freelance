@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Tarefa } from '../../src/dominio/tipos.ts';
 import { api } from './api.ts';
-import { quando } from './formato.ts';
+import { quando, quandoFoiFeita } from './formato.ts';
 
 const PEDIDO_DE_ATUALIZACAO = 'painel:atualizar';
 const PAUSA_ENTRE_VOLTAS_MS = 2000;
@@ -133,7 +133,9 @@ export function LinhaTarefa({
         <p className="obj-sub">{ligacao}</p>
         <Erro mensagem={erro} />
       </div>
-      {!feita && (
+      {feita ? (
+        <span className="obj-hora sem">{quandoFoiFeita(tarefa.feitaEm!, hoje)}</span>
+      ) : (
         <span className={`obj-hora${tarefa.dia ? '' : ' sem'}${atrasada ? ' atrasada' : ''}`}>{quando(tarefa, hoje)}</span>
       )}
       {!feita && <BotaoAgenda tarefa={tarefa} aoMudar={aoMudar} />}

@@ -1,3 +1,4 @@
+import { diaDeHoje, horaEmBrasilia } from '../../src/dominio/datas.ts';
 import type { Tarefa } from '../../src/dominio/tipos.ts';
 
 const DIAS_DA_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
@@ -23,6 +24,16 @@ export function quando(tarefa: Pick<Tarefa, 'dia' | 'hora'>, hoje: string): stri
   else if (distancia === -1) rotulo = 'ontem';
   else rotulo = `${DIAS_DA_SEMANA[d.getUTCDay()]} ${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   return tarefa.hora ? `${rotulo} · ${tarefa.hora}` : rotulo;
+}
+
+/** Quando a tarefa foi concluída, no horário de Brasília: "feita hoje · 10:16", "feita qui 12/11 · 09:30". */
+export function quandoFoiFeita(feitaEm: string, hoje: string): string {
+  const instante = new Date(feitaEm);
+  const dia = diaDeHoje(instante);
+  const hora = horaEmBrasilia(instante);
+  // De um ano para o outro, "qui 12/11" não diz de quando é.
+  if (dia.slice(0, 4) !== hoje.slice(0, 4)) return `feita ${dia.slice(8)}/${dia.slice(5, 7)}/${dia.slice(0, 4)} · ${hora}`;
+  return `feita ${quando({ dia, hora }, hoje)}`;
 }
 
 /** "quinta-feira, 12 de novembro" */

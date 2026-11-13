@@ -6,6 +6,7 @@ import { ArmazemSqlite } from './armazem-sqlite.ts';
 import { ArquivoNoGithub } from './arquivo-github.ts';
 import { ArquivoNaMemoria } from './arquivo-memoria.ts';
 import { abrirBanco } from './banco.ts';
+import { diaDeHoje, horaEmBrasilia } from './datas.ts';
 import { githubDeMentira } from './github-de-mentira.ts';
 import { Painel } from './painel.ts';
 import { ErroDeValidacao, NaoEncontrado } from './tipos.ts';
@@ -195,6 +196,14 @@ for (const [nome, criarArmazem] of ARMAZENS) {
     ]);
   });
 }
+
+test('dia e hora de um instante saem no horário de Brasília', () => {
+  // 02:30 UTC do dia 14 ainda é 23:30 do dia 13 em Brasília.
+  const instante = new Date('2026-11-14T02:30:00Z');
+  assert.equal(diaDeHoje(instante), '2026-11-13');
+  assert.equal(horaEmBrasilia(instante), '23:30');
+  assert.equal(horaEmBrasilia(new Date('2026-11-13T03:05:00Z')), '00:05');
+});
 
 test('link do Google Agenda usa o fuso de Brasília e 30 minutos', () => {
   const url = new URL(linkDoCompromisso({ titulo: 'ONG', dia: '2026-11-17', hora: '23:45' }));
