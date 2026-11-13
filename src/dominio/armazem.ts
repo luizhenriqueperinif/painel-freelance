@@ -2,7 +2,7 @@
 // o que vale é o Painel (painel.ts). Trocar o armazém troca só o lugar onde os dados moram
 // (o SQLite do PC ou um arquivo num repositório privado do GitHub). Ver docs/adr/0002.
 
-import type { Frente, Oportunidade } from './tipos.ts';
+import type { EstadoDosDados, Frente, Oportunidade } from './tipos.ts';
 
 /** Uma Tarefa como fica guardada, antes de o Painel juntar os dados da Oportunidade. */
 export interface RegistroDeTarefa {
@@ -36,4 +36,7 @@ export interface Armazem {
 
   lerPreferencia(chave: string): Promise<string | null>;
   gravarPreferencia(chave: string, valor: string): Promise<void>;
+
+  /** Se a última consulta respondeu com os dados de agora ou com uma leitura antiga guardada no aparelho. */
+  estado(): EstadoDosDados;
 }

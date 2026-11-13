@@ -21,6 +21,10 @@ export interface GithubDeMentira {
   pedidos: Pedido[];
   commits: string[];
   foraDoAr: boolean;
+  /** Responde a tudo com este erro do lado do GitHub (502, 503...). */
+  comProblema: number | null;
+  /** Responde a tudo com a pausa por excesso de pedidos. */
+  pedindoPausa: boolean;
   /** Chamado logo antes de cada gravação chegar: serve para encaixar a gravação de outro aparelho. */
   antesDeGravar: (() => void) | null;
   /** Acima deste tamanho o conteúdo não vem junto, como acontece no GitHub com mais de 1 MB. */
@@ -41,6 +45,8 @@ export function githubDeMentira(repositorio: string, token: string): GithubDeMen
     pedidos: [],
     commits: [],
     foraDoAr: false,
+    comProblema: null,
+    pedindoPausa: false,
     antesDeGravar: null,
     limiteDoConteudo: 1024 * 1024,
     texto: (ramo) => arquivos.get(chave(ramo, 'painel.json')) ?? null,
@@ -55,6 +61,8 @@ export function githubDeMentira(repositorio: string, token: string): GithubDeMen
       const cabecalhos = Object.fromEntries(Object.entries((opcoes.headers ?? {}) as Record<string, string>).map(([nome, valor]) => [nome.toLowerCase(), valor]));
       github.pedidos.push({ metodo, caminho: `${url.pathname}${url.search}`, cabecalhos, cache: opcoes.cache });
 
+      if (github.comProblema !== null) return responder(github.comProblema, { message: 'Server Error' });
+      if (github.pedindoPausa) return responder(403, { message: 'API rate limit exceeded' }, { 'x-ratelimit-remaining': '0' });
       if (cabecalhos.authorization !== `Bearer ${token}`) return responder(401, { message: 'Bad credentials' });
       const base = `/repos/${repositorio}`;
       if (!url.pathname.startsWith(base)) return responder(404, { message: 'Not Found' });

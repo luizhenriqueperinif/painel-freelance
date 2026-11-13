@@ -1,10 +1,21 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { FRENTES, type Frente } from '../../../src/dominio/tipos.ts';
 import { Topo } from '../App.tsx';
 import { api } from '../api.ts';
-import { Erro, LinhaTarefa, useCarregar } from '../componentes.tsx';
+import { CampoLigacao, Erro, LinhaTarefa, lerLigacao, useCarregar, type CamposDaTarefa } from '../componentes.tsx';
+import { quando } from '../formato.ts';
 
 type Filtro = Frente | 'sem-frente' | undefined;
+
+const CAMPOS_VAZIOS: CamposDaTarefa = { titulo: '', dia: '', hora: '', ligacao: '' };
+
+/** Uma tarefa que a tela já mostra enquanto ela ainda está sendo gravada. */
+interface TarefaEnviando {
+  chave: number;
+  titulo: string;
+  dia: string | null;
+  hora: string | null;
+}
 
 export function PaginaTarefas({ parametros }: { parametros: URLSearchParams }) {
   const [filtro, setFiltro] = useState<Filtro>(undefined);
@@ -15,26 +26,36 @@ export function PaginaTarefas({ parametros }: { parametros: URLSearchParams }) {
   const [abertas, feitas, oportunidades, hoje] = dados ?? [[], [], [], null];
 
   const ligacaoInicial = parametros.get('oportunidade') ? `o:${parametros.get('oportunidade')}` : '';
-  const [campos, setCampos] = useState({ titulo: '', dia: '', hora: '', ligacao: ligacaoInicial });
+  const [campos, setCampos] = useState<CamposDaTarefa>({ ...CAMPOS_VAZIOS, ligacao: ligacaoInicial });
   const [erroForm, setErroForm] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState<TarefaEnviando[]>([]);
+  const proximaChave = useRef(1);
 
   const criar = async (e: FormEvent) => {
     e.preventDefault();
-    const [tipo, valor] = campos.ligacao.split(':');
+    const digitado = campos;
+    const titulo = digitado.titulo.trim();
+    if (!titulo) {
+      setErroForm('A tarefa precisa de um título.');
+      return;
+    }
+    const dia = digitado.dia || null;
+    const hora = dia ? digitado.hora || null : null;
+    const chave = proximaChave.current++;
+    // A tarefa aparece na lista na hora e o formulário fica livre para a próxima; a gravação segue por trás.
+    setEnviando((lista) => [...lista, { chave, titulo, dia, hora }]);
+    setCampos(CAMPOS_VAZIOS);
+    setErroForm(null);
+    if (parametros.get('oportunidade')) window.location.hash = '#/tarefas';
     try {
-      await api.criarTarefa({
-        titulo: campos.titulo,
-        dia: campos.dia || null,
-        hora: campos.hora || null,
-        oportunidadeId: tipo === 'o' ? Number(valor) : null,
-        frente: tipo === 'f' ? (valor as Frente) : null,
-      });
-      setCampos({ titulo: '', dia: '', hora: '', ligacao: '' });
-      setErroForm(null);
-      if (parametros.get('oportunidade')) window.location.hash = '#/tarefas';
-      void recarregar();
+      await api.criarTarefa({ titulo, dia, hora, ...lerLigacao(digitado.ligacao) });
+      await recarregar();
     } catch (falha) {
-      setErroForm((falha as Error).message);
+      // Não gravou: o que foi digitado volta para o formulário, a não ser que outra tarefa já esteja sendo escrita.
+      setCampos((agora) => (agora.titulo ? agora : digitado));
+      setErroForm(`Não salvou "${titulo}": ${(falha as Error).message}`);
+    } finally {
+      setEnviando((lista) => lista.filter((item) => item.chave !== chave));
     }
   };
 
@@ -63,28 +84,9 @@ export function PaginaTarefas({ parametros }: { parametros: URLSearchParams }) {
         </label>
         <label className="campo">
           Hora
-          <input type="time" value={campos.hora} disabled={!campos.dia} onChange={(e) => setCampos({ ...campos, hora: e.target.value })} />
+          <input type="time" value={campos.dia ? campos.hora : ''} disabled={!campos.dia} onChange={(e) => setCampos({ ...campos, hora: e.target.value })} />
         </label>
-        <label className="campo">
-          Ligada a
-          <select value={campos.ligacao} onChange={(e) => setCampos({ ...campos, ligacao: e.target.value })}>
-            <option value="">Nada</option>
-            <optgroup label="Oportunidade">
-              {oportunidades.map((o) => (
-                <option key={o.id} value={`o:${o.id}`}>
-                  {o.frente} · {o.nome}
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label="Só a frente">
-              {FRENTES.map((f) => (
-                <option key={f} value={`f:${f}`}>
-                  {f}
-                </option>
-              ))}
-            </optgroup>
-          </select>
-        </label>
+        <CampoLigacao valor={campos.ligacao} aoMudar={(ligacao) => setCampos({ ...campos, ligacao })} oportunidades={oportunidades} />
         <button type="submit" className="btn corte-p" style={{ padding: '12px 20px' }}>
           Criar
         </button>
@@ -105,9 +107,20 @@ export function PaginaTarefas({ parametros }: { parametros: URLSearchParams }) {
 
       <section className="p corte" aria-labelledby="t-abertas">
         <h2 className="rot" id="t-abertas">
-          Abertas · {abertas.length}
+          Abertas · {abertas.length + enviando.length}
         </h2>
-        {abertas.length === 0 && <p className="vazio">Nenhuma tarefa aberta aqui.</p>}
+        {abertas.length + enviando.length === 0 && <p className="vazio">{dados === null && !erro ? 'Carregando.' : 'Nenhuma tarefa aberta aqui.'}</p>}
+        {hoje &&
+          enviando.map((item) => (
+            <div key={`enviando-${item.chave}`} className="obj enviando" aria-busy="true">
+              <span className="losango" aria-hidden="true" />
+              <div className="obj-texto">
+                <p className="obj-titulo">{item.titulo}</p>
+                <p className="obj-sub">salvando</p>
+              </div>
+              <span className={`obj-hora${item.dia ? '' : ' sem'}`}>{quando(item, hoje.dia)}</span>
+            </div>
+          ))}
         {hoje && abertas.map((t) => <LinhaTarefa key={t.id} tarefa={t} hoje={hoje.dia} aoMudar={recarregar} apagar />)}
       </section>
 

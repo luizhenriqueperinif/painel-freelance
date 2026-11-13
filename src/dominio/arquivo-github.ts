@@ -3,7 +3,7 @@
 // A versão do arquivo é o "sha" que o GitHub dá a cada conteúdo, e cada gravação vira um commit.
 
 import { ConflitoDeVersao, type ArquivoDeDados } from './armazem-arquivo.ts';
-import { ErroDeArmazenamento } from './tipos.ts';
+import { ErroDeArmazenamento, SemConexao } from './tipos.ts';
 
 export interface OpcoesDoGithub {
   /** O repositório privado de dados, no formato "dono/nome". */
@@ -19,6 +19,11 @@ export interface OpcoesDoGithub {
 }
 
 const API = 'https://api.github.com';
+const LIMITE_PARA_LER_MS = 8000;
+/** Gravar espera mais: desistir cedo de uma gravação que ia dar certo deixaria a tela dizendo que falhou. */
+const LIMITE_PARA_GRAVAR_MS = 20_000;
+
+const semResposta = () => new SemConexao('Não consegui falar com o GitHub. Confira a internet e tente de novo.');
 
 function paraBase64(texto: string): string {
   const bytes = new TextEncoder().encode(texto);
@@ -57,6 +62,8 @@ export class ArquivoNoGithub implements ArquivoDeDados {
     const token = await this.token();
     try {
       return await this.buscar(`${API}${caminho}`, {
+        // Sem limite, um GitHub que não responde deixaria a tela esperando para sempre.
+        signal: AbortSignal.timeout(metodo === 'GET' ? LIMITE_PARA_LER_MS : LIMITE_PARA_GRAVAR_MS),
         method: metodo,
         headers: {
           Accept: 'application/vnd.github+json',
@@ -70,19 +77,30 @@ export class ArquivoNoGithub implements ArquivoDeDados {
         cache: 'no-store',
       });
     } catch {
-      throw new ErroDeArmazenamento('Não consegui falar com o GitHub. Confira a internet e tente de novo.');
+      throw semResposta();
     }
   }
 
+  /** O corpo da resposta. A conexão pode cair no meio dele, e isso também é ficar sem resposta. */
+  private async corpo<T>(resposta: Response): Promise<T> {
+    try {
+      return (await resposta.json()) as T;
+    } catch {
+      throw semResposta();
+    }
+  }
+
+  // Pausa por excesso de pedidos e erro do lado do GitHub passam sozinhos: contam como falta de conexão,
+  // e o painel segue mostrando a última leitura. Token, permissão e repositório errado precisam aparecer.
   private recusa(resposta: Response): ErroDeArmazenamento {
     if (resposta.status === 401) return new ErroDeArmazenamento('O GitHub recusou o acesso: o token não vale mais ou foi revogado.');
     if (resposta.status === 403 || resposta.status === 429) {
       return resposta.headers.get('x-ratelimit-remaining') === '0' || resposta.status === 429 || resposta.headers.has('retry-after')
-        ? new ErroDeArmazenamento('O GitHub pediu uma pausa por excesso de pedidos. Tente de novo em alguns minutos.')
+        ? new SemConexao('O GitHub pediu uma pausa por excesso de pedidos. Tente de novo em alguns minutos.')
         : new ErroDeArmazenamento(`Este acesso não tem permissão para gravar no repositório ${this.repositorio}.`);
     }
     if (resposta.status === 404) return this.semRepositorio();
-    if (resposta.status >= 500) return new ErroDeArmazenamento(`O GitHub está com problema agora (erro ${resposta.status}). Tente de novo em instantes.`);
+    if (resposta.status >= 500) return new SemConexao(`O GitHub está com problema agora (erro ${resposta.status}). Tente de novo em instantes.`);
     return new ErroDeArmazenamento(`O GitHub recusou o pedido (erro ${resposta.status}).`);
   }
 
@@ -116,14 +134,14 @@ export class ArquivoNoGithub implements ArquivoDeDados {
     }
     if (!resposta.ok) throw this.recusa(resposta);
 
-    const corpo = (await resposta.json()) as { type?: string; sha?: string; content?: string; size?: number };
+    const corpo = await this.corpo<{ type?: string; sha?: string; content?: string; size?: number }>(resposta);
     if (corpo.type !== 'file' || !corpo.sha) throw new ErroDeArmazenamento(`${this.caminho} no repositório ${this.repositorio} não é um arquivo.`);
     let base64 = corpo.content ?? '';
     if (!base64 && (corpo.size ?? 0) > 0) {
       // Acima de 1 MB o GitHub não manda o conteúdo junto: ele vem pelo endereço do "blob".
       const blob = await this.pedir('GET', `/repos/${this.repositorio}/git/blobs/${corpo.sha}`);
       if (!blob.ok) throw this.recusa(blob);
-      base64 = ((await blob.json()) as { content: string }).content;
+      base64 = (await this.corpo<{ content: string }>(blob)).content;
     }
     this.repositorioConferido = true;
     this.guardado = { etiqueta: resposta.headers.get('etag'), texto: deBase64(base64), versao: corpo.sha };
@@ -140,7 +158,7 @@ export class ArquivoNoGithub implements ArquivoDeDados {
     // 409: o arquivo mudou depois da versão lida. 422 ao criar: alguém criou o arquivo antes.
     if (resposta.status === 409 || (resposta.status === 422 && versaoAnterior === null)) throw new ConflitoDeVersao();
     if (!resposta.ok) throw this.recusa(resposta);
-    const corpo = (await resposta.json()) as { content: { sha: string } };
+    const corpo = await this.corpo<{ content: { sha: string } }>(resposta);
     // A etiqueta da leitura antiga não vale mais; a próxima leitura baixa o arquivo de novo.
     this.guardado = { etiqueta: null, texto, versao: corpo.content.sha };
     return corpo.content.sha;

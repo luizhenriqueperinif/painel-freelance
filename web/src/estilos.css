@@ -111,7 +111,9 @@ a { color: var(--secundaria); }
 .obj:first-of-type { border-top: 0; }
 .losango { appearance: none; width: 20px; height: 20px; border: 2px solid var(--secundaria); margin: 0 4px; transform: rotate(45deg); cursor: pointer; flex: none; background: transparent; }
 .losango:checked { background: var(--secundaria); }
-.obj-texto { flex: 1 1 280px; min-width: 0; }
+.obj-texto { flex: 1 1 220px; min-width: 0; }
+/* A hora e os botões andam juntos: sem espaço, descem todos para a linha de baixo, à direita. */
+.obj-fim { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 14px; margin-left: auto; }
 .obj-titulo { font-size: 17px; font-weight: 600; margin: 0; }
 .obj-titulo.feita { color: var(--suave); text-decoration: line-through; font-weight: 500; }
 .obj-sub { font-size: 13px; color: var(--suave); font-weight: 500; margin: 2px 0 0; }
@@ -189,6 +191,10 @@ textarea { min-height: 70px; resize: vertical; }
 .filtro { font-size: 13px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; background: var(--painel); color: var(--suave); border: 1px solid var(--linha); padding: 8px 14px; cursor: pointer; }
 .filtro[aria-pressed='true'] { color: var(--fundo); background: var(--secundaria); border-color: var(--secundaria); }
 .erro { color: var(--alerta-texto); margin: 0; font-size: 14px; }
+.aviso { background: var(--alerta-fundo); color: var(--alerta-texto); margin: 0; padding: 12px 16px; font-size: 14px; font-weight: 600; }
+/* Tarefa que a tela já mostra, mas que ainda está indo para o repositório de dados. */
+.obj.enviando { opacity: 0.6; }
+.obj.enviando .losango { cursor: default; }
 
 /* Diálogo */
 dialog { background: var(--painel); color: var(--texto); border: 1px solid var(--linha-forte); padding: 0; width: min(720px, calc(100vw - 32px)); }

@@ -13,6 +13,7 @@ import {
   SITUACOES,
   SITUACOES_ENCERRADAS,
   TEMAS,
+  type EstadoDosDados,
   type Frente,
   type Hoje,
   type MudancaOportunidade,
@@ -334,6 +335,11 @@ export class Painel {
     if (!TEMAS.includes(tema)) throw new ErroDeValidacao(`Tema inválido. Use ${TEMAS.join(', ')}.`);
     await this.armazem.gravarPreferencia('tema', tema);
     return tema;
+  }
+
+  /** Sem conexão, o painel mostra a última leitura guardada no aparelho e não grava. */
+  estadoDosDados(): EstadoDosDados {
+    return this.armazem.estado();
   }
 
   /** Link do Compromisso diário das 8h que lembra de abrir o painel (o resumo da v1). */

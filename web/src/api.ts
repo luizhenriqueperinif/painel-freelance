@@ -10,12 +10,16 @@ import type {
   Tarefa,
   Tema,
 } from '../../src/dominio/tipos.ts';
+import { CABECALHO_SEM_CONEXAO } from '../../src/dominio/tipos.ts';
+import { anotarConexao } from './conexao.ts';
 
 async function pedir<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
   const resposta = await fetch(caminho, {
     ...opcoes,
     headers: opcoes.body ? { 'Content-Type': 'application/json' } : undefined,
   });
+  // Sem conexão com o GitHub, o servidor diz de quando é a leitura que está mostrando.
+  anotarConexao(resposta.headers.get(CABECALHO_SEM_CONEXAO));
   if (resposta.status === 204) return undefined as T;
   const corpo = await resposta.json().catch(() => ({}));
   if (!resposta.ok) throw new Error((corpo as { erro?: string }).erro ?? `Erro ${resposta.status}`);

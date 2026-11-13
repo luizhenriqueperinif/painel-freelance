@@ -4,9 +4,10 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type { Armazem } from './armazem.ts';
-import { ArmazemEmArquivo } from './armazem-arquivo.ts';
+import { ArmazemEmArquivo, type CopiaLocal } from './armazem-arquivo.ts';
 import { ArmazemSqlite } from './armazem-sqlite.ts';
 import { ArquivoNoGithub } from './arquivo-github.ts';
 import { abrirBanco, PASTA_DE_DADOS } from './banco.ts';
@@ -15,6 +16,8 @@ import { ErroDeArmazenamento } from './tipos.ts';
 export const ARQUIVO_DA_ESCOLHA = join(PASTA_DE_DADOS, 'armazem.json');
 /** Opcional: um token só para o repositório de dados. Sem ele, vale o acesso que o git do PC já tem. */
 export const ARQUIVO_DO_TOKEN = join(PASTA_DE_DADOS, 'token-github.txt');
+/** A última leitura do repositório de dados, para o painel abrir sem conexão. */
+export const ARQUIVO_DA_COPIA = join(PASTA_DE_DADOS, 'copia-do-painel.json');
 
 export interface EscolhaDoArmazem {
   dados: 'sqlite' | 'github';
@@ -86,8 +89,34 @@ export function arquivoNoGithub(escolha: EscolhaDoArmazem = lerEscolha()): Arqui
   return new ArquivoNoGithub({ repositorio: escolha.repositorio, token: tokenDoGithub });
 }
 
+/**
+ * A última leitura do repositório de dados, guardada em dados/ para o painel ter o que mostrar
+ * sem conexão. A cópia leva o nome do repositório: trocar de repositório não mostra dados do antigo.
+ */
+export function copiaNoPc(repositorio: string, arquivo = ARQUIVO_DA_COPIA): CopiaLocal {
+  return {
+    async ler() {
+      let lido: { repositorio?: unknown; texto?: unknown; versao?: unknown; lidaEm?: unknown };
+      try {
+        lido = JSON.parse(await readFile(arquivo, 'utf8')) as typeof lido;
+      } catch {
+        return null;
+      }
+      if (lido.repositorio !== repositorio || typeof lido.texto !== 'string' || typeof lido.versao !== 'string' || typeof lido.lidaEm !== 'number') return null;
+      return { texto: lido.texto, versao: lido.versao, lidaEm: lido.lidaEm };
+    },
+    async gravar(copia) {
+      // Grava ao lado e troca de uma vez: o servidor e o MCP usam a mesma cópia, e ninguém lê um arquivo pela metade.
+      const provisorio = `${arquivo}.${process.pid}.tmp`;
+      await mkdir(dirname(arquivo), { recursive: true });
+      await writeFile(provisorio, JSON.stringify({ repositorio, ...copia }), 'utf8');
+      await rename(provisorio, arquivo);
+    },
+  };
+}
+
 /** O armazém que o painel usa hoje: SQLite do PC ou o repositório no GitHub. */
 export function abrirArmazem(escolha: EscolhaDoArmazem = lerEscolha()): Armazem {
   if (escolha.dados === 'sqlite') return new ArmazemSqlite(abrirBanco());
-  return new ArmazemEmArquivo(arquivoNoGithub(escolha));
+  return new ArmazemEmArquivo(arquivoNoGithub(escolha), undefined, copiaNoPc(escolha.repositorio!));
 }

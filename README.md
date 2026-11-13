@@ -70,3 +70,5 @@ Para voltar atrás, troque a linha para `"sqlite"`. O `dados/painel.db` não é 
 No PC não há nada para digitar: o painel pede ao git do computador o acesso ao GitHub que ele já usa para o push, e esse acesso fica só na memória do programa. Quem preferir um token que só enxerga o repositório de dados pode colocá-lo em `dados/token-github.txt`.
 
 Cada pessoa que usa o painel aponta para o repositório privado dela, então os dados de uma pessoa nunca passam pela conta de outra.
+
+Sem conexão com o GitHub, o painel mostra a última leitura (guardada em `dados/copia-do-painel.json`) com um aviso no topo dizendo de quando ela é. Nesse estado não dá para gravar: a tela avisa, devolve o que foi digitado e volta ao normal sozinha quando a conexão retorna.

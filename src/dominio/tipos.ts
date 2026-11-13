@@ -137,6 +137,24 @@ export class ErroDeArmazenamento extends Error {
   }
 }
 
+/** O GitHub não respondeu: falta de internet, demora demais ou problema do lado dele. Passa sozinho. */
+export class SemConexao extends ErroDeArmazenamento {
+  constructor(mensagem: string) {
+    super(mensagem);
+    this.name = 'SemConexao';
+  }
+}
+
+/** Cabeçalho que o servidor do PC põe nas respostas enquanto está sem conexão: a hora da leitura mostrada. */
+export const CABECALHO_SEM_CONEXAO = 'x-painel-sem-conexao';
+
+/** Se o que o painel mostra é o de agora ou uma leitura antiga guardada no aparelho. */
+export interface EstadoDosDados {
+  semConexao: boolean;
+  /** Quando os dados mostrados foram lidos (ISO). Só vem preenchido quando semConexao é true. */
+  dadosDe: string | null;
+}
+
 export class NaoEncontrado extends Error {
   constructor(mensagem: string) {
     super(mensagem);

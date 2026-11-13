@@ -8,6 +8,7 @@ import { RAIZ_DO_PROJETO } from '../dominio/banco.ts';
 import { Painel } from '../dominio/painel.ts';
 import { lerConfiguracao, lerRepositorios } from '../dominio/repositorios.ts';
 import {
+  CABECALHO_SEM_CONEXAO,
   ErroDeArmazenamento,
   ErroDeValidacao,
   NaoEncontrado,
@@ -37,6 +38,16 @@ app.setErrorHandler((erro, _pedido, resposta: FastifyReply) => {
   if (status && status < 500) return resposta.status(status).send({ erro: (erro as Error).message });
   app.log.error(erro);
   return resposta.status(500).send({ erro: 'Erro inesperado no painel.' });
+});
+
+// Sem conexão com o GitHub, as respostas levam a hora da leitura que está sendo mostrada,
+// e a tela avisa que os dados não são os de agora.
+app.addHook('onSend', async (pedido, resposta, corpo) => {
+  if (pedido.url.startsWith('/api/')) {
+    const { semConexao, dadosDe } = painel.estadoDosDados();
+    if (semConexao) resposta.header(CABECALHO_SEM_CONEXAO, dadosDe ?? 'sem-copia');
+  }
+  return corpo;
 });
 
 const idDe = (params: unknown) => {

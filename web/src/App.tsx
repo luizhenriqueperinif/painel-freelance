@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { diaDeHoje, horaEmBrasilia } from '../../src/dominio/datas.ts';
 import { TEMAS, type Tema } from '../../src/dominio/tipos.ts';
 import { api } from './api.ts';
 import { pedirAtualizacao } from './componentes.tsx';
+import { SEM_COPIA, useDadosDe } from './conexao.ts';
+import { quando } from './formato.ts';
 import { PaginaHoje } from './paginas/Hoje.tsx';
 import { PaginaFrentes } from './paginas/Frentes.tsx';
 import { PaginaRepositorios } from './paginas/Repositorios.tsx';
@@ -104,6 +107,35 @@ export function Topo({ titulo, sub }: { titulo: string; sub: string }) {
   );
 }
 
+const PAUSA_ENTRE_TENTATIVAS_MS = 12_000;
+
+/** Avisa que os dados na tela são uma leitura antiga e procura a conexão de novo, sozinho. */
+function AvisoSemConexao() {
+  const dadosDe = useDadosDe();
+  const semConexao = dadosDe !== null;
+  const estavaSemConexao = useRef(false);
+
+  useEffect(() => {
+    // A conexão voltou: a tela aberta busca os dados de agora.
+    if (estavaSemConexao.current && !semConexao) pedirAtualizacao();
+    estavaSemConexao.current = semConexao;
+    if (!semConexao) return;
+    // Um pedido leve basta para o servidor tentar o GitHub outra vez e contar como foi.
+    const repetir = window.setInterval(() => void api.tema().catch(() => undefined), PAUSA_ENTRE_TENTATIVAS_MS);
+    return () => window.clearInterval(repetir);
+  }, [semConexao]);
+
+  if (dadosDe === null) return null;
+  const lidos = dadosDe === SEM_COPIA ? null : new Date(dadosDe);
+  return (
+    <p className="aviso" role="status">
+      Sem conexão com o GitHub.{' '}
+      {lidos && `Mostrando os dados de ${quando({ dia: diaDeHoje(lidos), hora: horaEmBrasilia(lidos) }, diaDeHoje())}. `}
+      Não dá para gravar até a conexão voltar; o painel tenta de novo sozinho.
+    </p>
+  );
+}
+
 export function App() {
   const [rota, setRota] = useState<Rota>(lerRota);
 
@@ -133,5 +165,10 @@ export function App() {
     }
   }, [rota]);
 
-  return <div className="pagina">{pagina()}</div>;
+  return (
+    <div className="pagina">
+      <AvisoSemConexao />
+      {pagina()}
+    </div>
+  );
 }

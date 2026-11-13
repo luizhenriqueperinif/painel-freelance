@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { abrirArmazem } from '../dominio/abrir-armazem.ts';
+import { diaDeHoje, horaEmBrasilia } from '../dominio/datas.ts';
 import { Painel } from '../dominio/painel.ts';
 import { lerConfiguracao, lerRepositorios } from '../dominio/repositorios.ts';
 import { FRENTES, SITUACOES } from '../dominio/tipos.ts';
@@ -26,9 +27,21 @@ function responder(dados: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(dados, null, 2) }] };
 }
 
+/** Sem conexão, a resposta vem de uma leitura antiga guardada no PC: quem lê precisa saber de quando ela é. */
+function avisoDeSemConexao(): string | null {
+  const { semConexao, dadosDe } = painel().estadoDosDados();
+  if (!semConexao || !dadosDe) return null;
+  const lidos = new Date(dadosDe);
+  const [ano, mes, dia] = diaDeHoje(lidos).split('-');
+  return `Aviso: sem conexão com o GitHub. Estes são os dados guardados no PC em ${dia}/${mes}/${ano} às ${horaEmBrasilia(lidos)} e podem estar desatualizados. Não dá para gravar até a conexão voltar.`;
+}
+
 async function seguro(acao: () => unknown | Promise<unknown>) {
   try {
-    return responder(await acao());
+    const resposta = responder(await acao());
+    const aviso = avisoDeSemConexao();
+    if (aviso) resposta.content.push({ type: 'text' as const, text: aviso });
+    return resposta;
   } catch (erro) {
     return { content: [{ type: 'text' as const, text: (erro as Error).message }], isError: true };
   }

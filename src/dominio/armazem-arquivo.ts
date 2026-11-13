@@ -5,9 +5,12 @@
 // Vários aparelhos gravam no mesmo arquivo. Para ninguém apagar o que o outro fez, toda
 // gravação diz qual versão do arquivo ela leu. Se a versão já mudou, o armazém lê de novo
 // e refaz só a mudança pedida em cima do arquivo novo.
+//
+// Quando o arquivo não responde (sem internet), o armazém mostra a última leitura boa, que
+// também fica guardada no aparelho, e avisa pelo estado(). Gravar só volta com a conexão.
 
 import type { Armazem, RegistroDeTarefa } from './armazem.ts';
-import { ErroDeArmazenamento, type Frente, type Oportunidade } from './tipos.ts';
+import { ErroDeArmazenamento, SemConexao, type EstadoDosDados, type Frente, type Oportunidade } from './tipos.ts';
 
 /** O arquivo onde os dados moram. A versão muda a cada gravação. */
 export interface ArquivoDeDados {
@@ -26,6 +29,19 @@ export class ConflitoDeVersao extends Error {
     super('O arquivo de dados mudou depois da última leitura.');
     this.name = 'ConflitoDeVersao';
   }
+}
+
+/** A última leitura boa do arquivo, com a hora (em milissegundos) em que foi feita. */
+export interface Copia {
+  texto: string;
+  versao: string;
+  lidaEm: number;
+}
+
+/** Onde o aparelho guarda a última leitura, para mostrar quando o arquivo não responde. */
+export interface CopiaLocal {
+  ler(): Promise<Copia | null>;
+  gravar(copia: Copia): Promise<void>;
 }
 
 export const FORMATO = 1;
@@ -134,23 +150,64 @@ interface Mudanca<T> {
 /** Por este tempo depois de ler, o armazém responde da memória sem perguntar de novo ao arquivo. */
 const VALIDADE_DA_LEITURA_MS = 2000;
 const TENTATIVAS_DE_GRAVAR = 5;
+/** Depois de uma falha de conexão, espera este tempo antes de procurar o arquivo de novo. */
+const ESPERA_SEM_CONEXAO_MS = 10_000;
+/** Sem mudança no arquivo, a cópia do aparelho é regravada neste intervalo, para a hora dela não ficar para trás. */
+const INTERVALO_DA_COPIA_MS = 60_000;
 
 const igual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 export class ArmazemEmArquivo implements Armazem {
   private readonly arquivo: ArquivoDeDados;
   private readonly agora: () => number;
+  private readonly copia: CopiaLocal | null;
   private atual: Lido | null = null;
   private lendo: Promise<Lido> | null = null;
   private fila: Promise<unknown> = Promise.resolve();
+  /** Quando o arquivo deixou de responder pela última vez. null enquanto a conexão está boa. */
+  private falhouEm: number | null = null;
+  private copiaGravada: { versao: string; em: number } | null = null;
 
-  constructor(arquivo: ArquivoDeDados, agora: () => number = () => Date.now()) {
+  constructor(arquivo: ArquivoDeDados, agora: () => number = () => Date.now(), copia: CopiaLocal | null = null) {
     this.arquivo = arquivo;
     this.agora = agora;
+    this.copia = copia;
   }
 
+  estado(): EstadoDosDados {
+    if (this.falhouEm === null) return { semConexao: false, dadosDe: null };
+    return { semConexao: true, dadosDe: this.atual ? new Date(this.atual.lidoEm).toISOString() : null };
+  }
+
+  private semConexaoHaPouco(): boolean {
+    return this.falhouEm !== null && this.agora() - this.falhouEm < ESPERA_SEM_CONEXAO_MS;
+  }
+
+  /**
+   * Os dados para uma consulta. Sem conexão, devolve a última leitura boa (da memória ou da
+   * cópia do aparelho). Com deNovo, só vale o que o arquivo responder agora: é o que as gravações usam.
+   */
   private async carregar(deNovo = false): Promise<Lido> {
-    if (!deNovo && this.atual && this.agora() - this.atual.lidoEm < VALIDADE_DA_LEITURA_MS) return this.atual;
+    if (!deNovo && this.atual) {
+      if (this.falhouEm === null) {
+        if (this.agora() - this.atual.lidoEm < VALIDADE_DA_LEITURA_MS) return this.atual;
+      } else {
+        // Sem conexão a tela não fica esperando: recebe o que já tem, e a nova tentativa corre por trás.
+        if (!this.semConexaoHaPouco()) void this.lerDoArquivo().catch(() => undefined);
+        return this.atual;
+      }
+    }
+    try {
+      return await this.lerDoArquivo();
+    } catch (erro) {
+      if (deNovo || !(erro instanceof SemConexao)) throw erro;
+      const guardado = this.atual ?? (await this.lerDaCopia());
+      if (!guardado) throw erro;
+      return guardado;
+    }
+  }
+
+  private lerDoArquivo(): Promise<Lido> {
     // Várias consultas ao mesmo tempo dividem uma leitura só.
     this.lendo ??= (async () => {
       try {
@@ -161,7 +218,13 @@ export class ArmazemEmArquivo implements Armazem {
           versao: lido?.versao ?? null,
           lidoEm: this.agora(),
         };
+        this.falhouEm = null;
+        if (lido) await this.guardarCopia(lido.texto, lido.versao);
         return this.atual;
+      } catch (erro) {
+        // Qualquer outra recusa (token, repositório, arquivo estragado) veio do próprio GitHub: há conexão.
+        this.falhouEm = erro instanceof SemConexao ? this.agora() : null;
+        throw erro;
       } finally {
         this.lendo = null;
       }
@@ -169,20 +232,50 @@ export class ArmazemEmArquivo implements Armazem {
     return this.lendo;
   }
 
+  private async lerDaCopia(): Promise<Lido | null> {
+    try {
+      const copia = await this.copia?.ler();
+      if (!copia) return null;
+      this.atual = { dados: deTexto(copia.texto), versao: copia.versao, lidoEm: copia.lidaEm };
+      return this.atual;
+    } catch {
+      // Cópia estragada é como não ter cópia: vale o erro de conexão.
+      return null;
+    }
+  }
+
+  /** Guarda a leitura no aparelho. Se não der, o painel segue igual: a cópia é só um reforço. */
+  private async guardarCopia(texto: string, versao: string): Promise<void> {
+    if (!this.copia) return;
+    const agora = this.agora();
+    if (this.copiaGravada?.versao === versao && agora - this.copiaGravada.em < INTERVALO_DA_COPIA_MS) return;
+    try {
+      await this.copia.gravar({ texto, versao, lidaEm: agora });
+      this.copiaGravada = { versao, em: agora };
+    } catch {
+      this.copiaGravada = null;
+    }
+  }
+
   /** Aplica uma mudança e grava. As gravações deste aparelho entram em fila, uma de cada vez. */
   private alterar<T>(mudar: (dados: DadosDoPainel) => Mudanca<T>): Promise<T> {
     const vez = this.fila.then(async () => {
+      // O arquivo acabou de não responder: avisa na hora em vez de deixar a tela esperando de novo.
+      if (this.semConexaoHaPouco()) throw new SemConexao('Sem conexão com o GitHub: não deu para gravar. Tente de novo quando a conexão voltar.');
       for (let tentativa = 1; tentativa <= TENTATIVAS_DE_GRAVAR; tentativa++) {
-        // Depois de um conflito, lê o arquivo de novo e refaz a mudança em cima dele.
-        const lido = await this.carregar(tentativa > 1);
+        // Depois de um conflito ou de uma queda de conexão, lê o arquivo de novo e faz a mudança em cima dele.
+        const lido = await this.carregar(tentativa > 1 || this.falhouEm !== null);
         const dados = structuredClone(lido.dados);
         const { resultado, mensagem } = mudar(dados);
         if (mensagem === null) return resultado;
         try {
-          const versao = await this.arquivo.gravar(paraTexto(dados), lido.versao, mensagem);
+          const texto = paraTexto(dados);
+          const versao = await this.arquivo.gravar(texto, lido.versao, mensagem);
           this.atual = { dados, versao, lidoEm: this.agora() };
+          await this.guardarCopia(texto, versao);
           return resultado;
         } catch (erro) {
+          if (erro instanceof SemConexao) this.falhouEm = this.agora();
           if (!(erro instanceof ConflitoDeVersao)) throw erro;
         }
       }

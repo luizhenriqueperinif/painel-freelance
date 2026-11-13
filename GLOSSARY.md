@@ -49,3 +49,7 @@ _Evite_: repositório (aqui é a pasta de código), banco, store
 **Repositório de dados**:
 O repositório privado do GitHub, na conta de quem usa o painel, que guarda o arquivo com as oportunidades e tarefas. Não é um Repositório do painel: não tem código e não aparece na tela Repositórios.
 _Evite_: banco, nuvem, backup
+
+**Cópia do aparelho**:
+A última leitura do Repositório de dados, guardada no próprio aparelho. É o que o painel mostra, com aviso, quando está sem conexão. Os dados não moram nela: nada é gravado na cópia para enviar depois.
+_Evite_: cache, backup, modo offline

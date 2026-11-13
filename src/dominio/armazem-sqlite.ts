@@ -3,7 +3,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { Armazem, RegistroDeTarefa } from './armazem.ts';
-import type { Frente, Oportunidade, Situacao } from './tipos.ts';
+import type { EstadoDosDados, Frente, Oportunidade, Situacao } from './tipos.ts';
 
 interface LinhaOportunidade {
   id: number;
@@ -174,5 +174,10 @@ export class ArmazemSqlite implements Armazem {
     this.banco
       .prepare('INSERT INTO preferencias (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor')
       .run(chave, valor);
+  }
+
+  /** O banco mora no próprio PC: o que ele devolve é sempre o de agora. */
+  estado(): EstadoDosDados {
+    return { semConexao: false, dadosDe: null };
   }
 }

@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ArmazemEmArquivo, ConflitoDeVersao, deTexto, paraTexto, type ArquivoDeDados } from './armazem-arquivo.ts';
 import { ArquivoNoGithub } from './arquivo-github.ts';
-import { ArquivoNaMemoria } from './arquivo-memoria.ts';
+import { ArquivoNaMemoria, CopiaNaMemoria } from './arquivo-memoria.ts';
 import { githubDeMentira } from './github-de-mentira.ts';
 import { Painel } from './painel.ts';
-import { ErroDeArmazenamento } from './tipos.ts';
+import { ErroDeArmazenamento, SemConexao } from './tipos.ts';
 
 const relogio = () => new Date('2026-11-12T18:00:00Z');
 
@@ -162,6 +162,176 @@ test('arquivo estragado ou de formato mais novo é recusado sem ser sobrescrito'
   }
 });
 
+// ---------- sem conexão ----------
+
+/** Um aparelho com relógio próprio e a cópia que ele guarda da última leitura. */
+function aparelho(arquivo = new ArquivoNaMemoria(), copia = new CopiaNaMemoria()) {
+  let agora = Date.parse('2026-11-13T13:16:00Z');
+  const armazem = new ArmazemEmArquivo(arquivo, () => agora, copia);
+  return { arquivo, copia, painel: new Painel(armazem, relogio), passarTempo: (ms: number) => (agora += ms) };
+}
+
+const umInstante = () => new Promise((resolve) => setImmediate(resolve));
+const titulos = async (painel: Painel) => (await painel.listarTarefas()).map((t) => t.titulo);
+
+test('sem conexão: o painel mostra a última leitura e diz de quando ela é', async () => {
+  const { arquivo, painel, passarTempo } = aparelho();
+  await painel.criarTarefa({ titulo: 'já estava aqui' });
+  assert.deepEqual(painel.estadoDosDados(), { semConexao: false, dadosDe: null });
+  passarTempo(60_000);
+  await painel.listarTarefas();
+  passarTempo(5 * 60_000);
+  arquivo.foraDoAr = true;
+  assert.deepEqual(await titulos(painel), ['já estava aqui']);
+  assert.deepEqual(painel.estadoDosDados(), { semConexao: true, dadosDe: '2026-11-13T13:17:00.000Z' });
+  assert.equal((await painel.hoje()).semData.length, 1);
+});
+
+test('sem conexão: as consultas não ficam batendo no arquivo a cada clique', async () => {
+  const { arquivo, painel, passarTempo } = aparelho();
+  await painel.criarTarefa({ titulo: 'a' });
+  passarTempo(3000);
+  arquivo.foraDoAr = true;
+  await painel.listarTarefas();
+  const leituras = arquivo.leituras;
+  await Promise.all([painel.hoje(), painel.listarOportunidades(), painel.tema()]);
+  passarTempo(9000);
+  await painel.hoje();
+  assert.equal(arquivo.leituras, leituras);
+  // Passada a espera, a consulta responde na hora com o que tem e uma nova tentativa corre por trás.
+  passarTempo(1000);
+  assert.deepEqual(await titulos(painel), ['a']);
+  await umInstante();
+  assert.equal(arquivo.leituras, leituras + 1);
+  assert.equal(painel.estadoDosDados().semConexao, true);
+});
+
+test('a conexão volta: o aviso some e aparece o que mudou em outro aparelho', async () => {
+  const arquivo = new ArquivoNaMemoria();
+  const pc = aparelho(arquivo);
+  const celular = aparelho(arquivo);
+  await pc.painel.criarTarefa({ titulo: 'do PC' });
+  pc.passarTempo(3000);
+  arquivo.foraDoAr = true;
+  await pc.painel.listarTarefas();
+  assert.equal(pc.painel.estadoDosDados().semConexao, true);
+  arquivo.foraDoAr = false;
+  await celular.painel.criarTarefa({ titulo: 'do celular' });
+  pc.passarTempo(10_000);
+  await pc.painel.listarTarefas();
+  await umInstante();
+  assert.deepEqual(pc.painel.estadoDosDados(), { semConexao: false, dadosDe: null });
+  assert.deepEqual(await titulos(pc.painel), ['do PC', 'do celular']);
+});
+
+test('sem conexão logo ao abrir: vale a cópia guardada no aparelho', async () => {
+  const antes = aparelho();
+  await antes.painel.criarTarefa({ titulo: 'guardada' });
+  // O painel é fechado e aberto de novo uma hora depois, sem internet.
+  antes.arquivo.foraDoAr = true;
+  const depois = aparelho(antes.arquivo, antes.copia);
+  depois.passarTempo(3_600_000);
+  assert.deepEqual(await titulos(depois.painel), ['guardada']);
+  assert.deepEqual(depois.painel.estadoDosDados(), { semConexao: true, dadosDe: '2026-11-13T13:16:00.000Z' });
+});
+
+test('sem conexão e sem cópia nenhuma: o erro aparece em vez de um painel vazio', async () => {
+  const arquivo = new ArquivoNaMemoria();
+  arquivo.foraDoAr = true;
+  for (const painel of [aparelho(arquivo).painel, new Painel(new ArmazemEmArquivo(arquivo), relogio)]) {
+    await assert.rejects(painel.hoje(), SemConexao);
+    assert.deepEqual(painel.estadoDosDados(), { semConexao: true, dadosDe: null });
+  }
+});
+
+test('cópia estragada no aparelho é como não ter cópia', async () => {
+  const { arquivo, copia, painel } = aparelho();
+  copia.guardada = { texto: '{ isto não é json', versao: '1', lidaEm: 0 };
+  arquivo.foraDoAr = true;
+  await assert.rejects(painel.hoje(), SemConexao);
+});
+
+test('sem conexão: gravar é recusado na hora e volta a funcionar com a conexão', async () => {
+  const { arquivo, painel, passarTempo } = aparelho();
+  await painel.criarTarefa({ titulo: 'antes' });
+  passarTempo(3000);
+  arquivo.foraDoAr = true;
+  await painel.listarTarefas();
+  const leituras = arquivo.leituras;
+  await assert.rejects(painel.criarTarefa({ titulo: 'não entra' }), (erro: Error) => erro instanceof SemConexao && /não deu para gravar/.test(erro.message));
+  assert.equal(arquivo.leituras, leituras);
+  // Passada a espera, o armazém procura o arquivo de verdade antes de desistir.
+  passarTempo(10_000);
+  await assert.rejects(painel.criarTarefa({ titulo: 'não entra' }), SemConexao);
+  assert.equal(arquivo.leituras, leituras + 1);
+  assert.deepEqual(arquivo.gravacoes, ['Tarefa 1 criada: antes']);
+  arquivo.foraDoAr = false;
+  passarTempo(10_000);
+  assert.equal((await painel.criarTarefa({ titulo: 'depois' })).id, 2);
+  assert.deepEqual(painel.estadoDosDados(), { semConexao: false, dadosDe: null });
+  assert.deepEqual(await titulos(painel), ['antes', 'depois']);
+});
+
+test('a conexão cai na hora de gravar: o painel avisa e continua mostrando o que tinha', async () => {
+  const { arquivo, painel } = aparelho();
+  await painel.criarTarefa({ titulo: 'antes' });
+  arquivo.foraDoAr = true;
+  await assert.rejects(painel.criarTarefa({ titulo: 'não entra' }), SemConexao);
+  assert.equal(painel.estadoDosDados().semConexao, true);
+  assert.deepEqual(await titulos(painel), ['antes']);
+});
+
+test('depois de ficar sem conexão, a gravação é feita em cima do arquivo de agora', async () => {
+  const arquivo = new ArquivoNaMemoria();
+  const pc = aparelho(arquivo);
+  const celular = aparelho(arquivo);
+  await pc.painel.criarTarefa({ titulo: 'A' });
+  pc.passarTempo(3000);
+  arquivo.foraDoAr = true;
+  await pc.painel.listarTarefas();
+  arquivo.foraDoAr = false;
+  await celular.painel.criarTarefa({ titulo: 'B' });
+  pc.passarTempo(10_000);
+  assert.equal((await pc.painel.criarTarefa({ titulo: 'C' })).id, 3);
+  assert.deepEqual(deTexto(arquivo.texto!).tarefas.map((t) => t.titulo), ['A', 'B', 'C']);
+});
+
+test('token recusado e arquivo estragado aparecem mesmo com cópia guardada', async () => {
+  const github = githubDeMentira(REPOSITORIO, TOKEN);
+  const copia = new CopiaNaMemoria();
+  const comAcesso = new Painel(new ArmazemEmArquivo(noGithub(github).arquivo, undefined, copia), relogio);
+  await comAcesso.criarTarefa({ titulo: 'guardada' });
+  assert.ok(copia.guardada);
+  const semAcesso = new Painel(new ArmazemEmArquivo(noGithub(github, { token: 'vencido' }).arquivo, undefined, copia), relogio);
+  await assert.rejects(semAcesso.hoje(), (erro: Error) => !(erro instanceof SemConexao) && /token não vale mais/.test(erro.message));
+  assert.equal(semAcesso.estadoDosDados().semConexao, false);
+
+  // O arquivo foi estragado por fora e o painel é aberto de novo, com a cópia boa ainda no aparelho.
+  const estragado = new ArquivoNaMemoria();
+  estragado.texto = '{ isto não é json';
+  const { painel } = aparelho(estragado, copia);
+  await assert.rejects(painel.hoje(), (erro: Error) => !(erro instanceof SemConexao) && /estragado/.test(erro.message));
+  assert.equal(painel.estadoDosDados().semConexao, false);
+});
+
+test('a cópia do aparelho só é regravada quando o arquivo muda ou depois de um minuto', async () => {
+  const { copia, painel, passarTempo } = aparelho();
+  await painel.criarTarefa({ titulo: 'a' });
+  assert.equal(copia.gravacoes, 1);
+  for (let i = 0; i < 5; i++) {
+    passarTempo(5000);
+    await painel.listarTarefas();
+  }
+  assert.equal(copia.gravacoes, 1);
+  passarTempo(60_000);
+  await painel.listarTarefas();
+  assert.equal(copia.gravacoes, 2);
+  assert.equal(copia.guardada!.lidaEm, Date.parse('2026-11-13T13:17:25Z'));
+  await painel.criarTarefa({ titulo: 'b' });
+  assert.equal(copia.gravacoes, 3);
+  assert.deepEqual(deTexto(copia.guardada!.texto).tarefas.map((t) => t.titulo), ['a', 'b']);
+});
+
 // ---------- o arquivo no GitHub ----------
 
 const REPOSITORIO = 'fulano/dados';
@@ -262,6 +432,44 @@ test('github: token recusado e falta de internet viram explicação', async () =
   github.foraDoAr = true;
   await assert.rejects(arquivo.ler(), (erro: Error) => erro instanceof ErroDeArmazenamento && /Confira a internet/.test(erro.message));
   await assert.rejects(arquivo.gravar('{}', null, 'x'), ErroDeArmazenamento);
+});
+
+test('github: sem resposta, erro do lado do GitHub e pausa contam como falta de conexão; o resto não', async () => {
+  const { github, arquivo } = noGithub();
+  github.gravarPorFora('{"a": 1}');
+  github.foraDoAr = true;
+  await assert.rejects(arquivo.ler(), SemConexao);
+  await assert.rejects(arquivo.gravar('{}', null, 'x'), SemConexao);
+  github.foraDoAr = false;
+  github.comProblema = 502;
+  await assert.rejects(arquivo.ler(), (erro: Error) => erro instanceof SemConexao && /erro 502/.test(erro.message));
+  github.comProblema = null;
+  github.pedindoPausa = true;
+  await assert.rejects(arquivo.ler(), (erro: Error) => erro instanceof SemConexao && /pausa/.test(erro.message));
+  github.pedindoPausa = false;
+  assert.equal((await arquivo.ler())?.texto, '{"a": 1}');
+
+  const naoEhConexao = (erro: Error) => erro instanceof ErroDeArmazenamento && !(erro instanceof SemConexao);
+  await assert.rejects(noGithub(github, { token: 'vencido' }).arquivo.ler(), naoEhConexao);
+  await assert.rejects(noGithub(github, { repositorio: 'fulano/outro' }).arquivo.ler(), naoEhConexao);
+});
+
+test('github: todo pedido tem limite de tempo', async () => {
+  const { github } = noGithub();
+  const sinais: (AbortSignal | null | undefined)[] = [];
+  const buscar = github.buscar;
+  const comSinal = new ArquivoNoGithub({
+    repositorio: REPOSITORIO,
+    token: () => TOKEN,
+    buscar: ((entrada, opcoes) => {
+      sinais.push(opcoes?.signal);
+      return buscar(entrada, opcoes);
+    }) as typeof fetch,
+  });
+  await comSinal.gravar('{}', null, 'cria');
+  await comSinal.ler();
+  assert.equal(sinais.length, 2);
+  assert.ok(sinais.every((sinal) => sinal instanceof AbortSignal));
 });
 
 test('github: o nome do repositório precisa ser "dono/nome"', () => {
