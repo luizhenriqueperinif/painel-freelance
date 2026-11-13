@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { TEMAS, type Tema } from '../../src/dominio/tipos.ts';
 import { api } from './api.ts';
+import { pedirAtualizacao } from './componentes.tsx';
 import { PaginaHoje } from './paginas/Hoje.tsx';
 import { PaginaFrentes } from './paginas/Frentes.tsx';
 import { PaginaRepositorios } from './paginas/Repositorios.tsx';
@@ -96,6 +97,9 @@ export function Topo({ titulo, sub }: { titulo: string; sub: string }) {
           />
         ))}
       </div>
+      <button type="button" className="btn-texto" onClick={pedirAtualizacao}>
+        atualizar
+      </button>
     </header>
   );
 }

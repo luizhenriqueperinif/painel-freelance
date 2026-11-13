@@ -19,12 +19,14 @@ Os termos usados no código estão no [GLOSSARY.md](GLOSSARY.md).
 TypeScript de ponta a ponta: Node 24 (roda `.ts` direto), Fastify, React com Vite e SQLite (`node:sqlite`). O servidor MCP usa o SDK oficial.
 
 ```
-src/dominio    regras do painel (a única camada com regra de negócio)
+src/dominio    regras do painel (a única camada com regra de negócio) e os armazéns
 src/servidor   API e site, só em 127.0.0.1
 src/mcp        servidor MCP para o Claude Code
 web            telas em React
 dados          banco e configuração pessoal (fora do git)
 ```
+
+As regras ficam em `src/dominio/painel.ts` e não sabem onde os dados moram: elas falam com um armazém, que pode ser o SQLite do PC ou um arquivo num repositório privado do GitHub.
 
 ## Como rodar
 
@@ -52,4 +54,19 @@ Depois é só pedir na conversa: "o que tem para hoje?", "cria uma tarefa para a
 
 ## Dados
 
-Tudo fica em `dados/`, que não vai para o GitHub: o banco (`painel.db`) e a lista de pastas (`repositorios.json`).
+Tudo fica em `dados/`, que não vai para o repositório do código: o banco (`painel.db`), a lista de pastas (`repositorios.json`) e a escolha de onde os dados moram (`armazem.json`).
+
+## Dados num repositório privado do GitHub (em mudança)
+
+Os dados estão saindo do SQLite do PC para um arquivo (`painel.json`) num repositório privado do GitHub, para o painel ganhar um app de desktop e um de Android sem tela de login ([a decisão](docs/adr/0002-dados-num-repositorio-privado-no-github.md)). Cada mudança vira um commit nesse repositório. Enquanto `dados/armazem.json` não disser `"dados": "github"`, nada muda: o painel continua no SQLite.
+
+1. Crie um repositório **privado** no GitHub só para os dados (por exemplo `painel-freelance-dados`).
+2. Copie `armazem.exemplo.json` para `dados/armazem.json` e coloque o nome do repositório, no formato `usuario/nome`.
+3. `npm run copiar-para-o-github`: leva tudo do SQLite, com os mesmos números, e confere se ficou igual.
+4. Troque para `"dados": "github"` em `dados/armazem.json` e abra o painel de novo (e o Claude Code, para o servidor MCP recomeçar).
+
+Para voltar atrás, troque a linha para `"sqlite"`. O `dados/painel.db` não é alterado pela cópia.
+
+No PC não há nada para digitar: o painel pede ao git do computador o acesso ao GitHub que ele já usa para o push, e esse acesso fica só na memória do programa. Quem preferir um token que só enxerga o repositório de dados pode colocá-lo em `dados/token-github.txt`.
+
+Cada pessoa que usa o painel aponta para o repositório privado dela, então os dados de uma pessoa nunca passam pela conta de outra.

@@ -1,8 +1,10 @@
 // A camada de ações do painel. O site e o servidor MCP só chamam o que está aqui;
 // nenhuma regra fica duplicada fora deste arquivo (ver docs/adr/0001).
+// Este arquivo não usa nada do Node: roda igual no navegador e no celular (docs/adr/0002).
+// Os dados chegam por um Armazém, e é aqui que eles são filtrados, ordenados e validados.
 
-import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { linkDoCompromisso } from './agenda.ts';
+import type { Armazem, RegistroDeTarefa } from './armazem.ts';
 import { diaDeHoje, ehDiaValido, ehHoraValida, somarDias } from './datas.ts';
 import {
   ErroDeValidacao,
@@ -25,42 +27,6 @@ import {
 } from './tipos.ts';
 
 const DIAS_DE_PROXIMOS = 7;
-
-interface LinhaOportunidade {
-  id: number;
-  nome: string;
-  frente: string;
-  situacao: string;
-  valor_centavos: number | null;
-  prazo: string | null;
-  link: string | null;
-  contato: string | null;
-  observacoes: string | null;
-  criada_em: string;
-  atualizada_em: string;
-}
-
-interface LinhaTarefa {
-  id: number;
-  titulo: string;
-  dia: string | null;
-  hora: string | null;
-  oportunidade_id: number | null;
-  oportunidade_nome: string | null;
-  oportunidade_frente: string | null;
-  repositorio: string | null;
-  frente: string | null;
-  na_agenda: number;
-  feita_em: string | null;
-  criada_em: string;
-}
-
-const SELECT_TAREFA = `
-  SELECT t.*, o.nome AS oportunidade_nome, o.frente AS oportunidade_frente
-  FROM tarefas t LEFT JOIN oportunidades o ON o.id = t.oportunidade_id`;
-
-// Tarefas sem dia vão para o fim; dentro do dia, as sem hora vêm depois das com hora.
-const ORDEM_TAREFA = `ORDER BY t.dia IS NULL, t.dia, t.hora IS NULL, t.hora, t.id`;
 
 function texto(valor: string | null | undefined): string | null {
   const limpo = valor?.trim();
@@ -93,79 +59,57 @@ function validarDiaEHora(dia: string | null, hora: string | null): void {
   if (hora !== null && dia === null) throw new ErroDeValidacao('Uma tarefa com hora precisa ter dia.');
 }
 
-function paraOportunidade(l: LinhaOportunidade): Oportunidade {
-  return {
-    id: l.id,
-    nome: l.nome,
-    frente: l.frente as Frente,
-    situacao: l.situacao as Situacao,
-    valorCentavos: l.valor_centavos,
-    prazo: l.prazo,
-    link: l.link,
-    contato: l.contato,
-    observacoes: l.observacoes,
-    criadaEm: l.criada_em,
-    atualizadaEm: l.atualizada_em,
-  };
+// Tarefas sem dia vão para o fim; dentro do dia, as sem hora vêm depois das com hora.
+function ordemDeTarefa(a: Tarefa, b: Tarefa): number {
+  if ((a.dia === null) !== (b.dia === null)) return a.dia === null ? 1 : -1;
+  if (a.dia !== b.dia) return a.dia! < b.dia! ? -1 : 1;
+  if ((a.hora === null) !== (b.hora === null)) return a.hora === null ? 1 : -1;
+  if (a.hora !== b.hora) return a.hora! < b.hora! ? -1 : 1;
+  return a.id - b.id;
 }
 
-function paraTarefa(l: LinhaTarefa): Tarefa {
-  const frente = (l.oportunidade_frente ?? l.frente) as Frente | null;
+/** Junta ao registro o que vem da Oportunidade: o nome, a frente e o link do Compromisso. */
+function montarTarefa(registro: RegistroDeTarefa, oportunidade: Oportunidade | null): Tarefa {
+  const frente = oportunidade?.frente ?? registro.frente;
   const linkAgenda =
-    l.dia && l.hora
+    registro.dia && registro.hora
       ? linkDoCompromisso({
-          titulo: l.titulo,
-          dia: l.dia,
-          hora: l.hora,
-          detalhes: [l.oportunidade_nome, frente, 'Criado pelo Painel do Freelance'].filter(Boolean).join(' · '),
+          titulo: registro.titulo,
+          dia: registro.dia,
+          hora: registro.hora,
+          detalhes: [oportunidade?.nome, frente, 'Criado pelo Painel do Freelance'].filter(Boolean).join(' · '),
         })
       : null;
   return {
-    id: l.id,
-    titulo: l.titulo,
-    dia: l.dia,
-    hora: l.hora,
-    oportunidadeId: l.oportunidade_id,
-    oportunidadeNome: l.oportunidade_nome,
-    repositorio: l.repositorio,
+    id: registro.id,
+    titulo: registro.titulo,
+    dia: registro.dia,
+    hora: registro.hora,
+    oportunidadeId: registro.oportunidadeId,
+    oportunidadeNome: oportunidade?.nome ?? null,
+    repositorio: registro.repositorio,
     frente,
-    naAgenda: l.na_agenda === 1,
-    feitaEm: l.feita_em,
-    criadaEm: l.criada_em,
+    naAgenda: registro.naAgenda,
+    feitaEm: registro.feitaEm,
+    criadaEm: registro.criadaEm,
     linkAgenda,
   };
 }
 
-export class Painel {
-  private readonly banco: DatabaseSync;
-  private readonly relogio: () => Date;
+function montarTarefas(registros: RegistroDeTarefa[], oportunidades: Oportunidade[]): Tarefa[] {
+  const porId = new Map(oportunidades.map((o) => [o.id, o]));
+  return registros.map((r) => montarTarefa(r, r.oportunidadeId === null ? null : (porId.get(r.oportunidadeId) ?? null)));
+}
 
-  constructor(banco: DatabaseSync, relogio: () => Date = () => new Date()) {
-    this.banco = banco;
-    this.relogio = relogio;
+/** Junta a cada Oportunidade o seu próximo passo: a Tarefa aberta mais próxima. */
+function comProximoPasso(oportunidades: Oportunidade[], abertas: Tarefa[]): OportunidadeComPasso[] {
+  const passos = new Map<number, Tarefa>();
+  for (const tarefa of [...abertas].sort(ordemDeTarefa)) {
+    if (tarefa.oportunidadeId !== null && !passos.has(tarefa.oportunidadeId)) passos.set(tarefa.oportunidadeId, tarefa);
   }
-
-  private agoraIso(): string {
-    return this.relogio().toISOString();
-  }
-
-  // ---------- Oportunidades ----------
-
-  listarOportunidades(filtro: { frente?: Frente; incluirPerdidas?: boolean } = {}): OportunidadeComPasso[] {
-    const condicoes: string[] = [];
-    const parametros: SQLInputValue[] = [];
-    if (filtro.frente) {
-      condicoes.push('frente = ?');
-      parametros.push(validarFrente(filtro.frente));
-    }
-    if (!filtro.incluirPerdidas) condicoes.push(`situacao <> 'Perdida'`);
-    const where = condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : '';
-    const linhas = this.banco
-      .prepare(`SELECT * FROM oportunidades ${where} ORDER BY id`)
-      .all(...parametros) as unknown as LinhaOportunidade[];
-    const passos = this.proximosPassos();
-    return linhas.map((l) => {
-      const oportunidade = paraOportunidade(l);
+  return [...oportunidades]
+    .sort((a, b) => a.id - b.id)
+    .map((oportunidade) => {
       const proximoPasso = passos.get(oportunidade.id) ?? null;
       return {
         ...oportunidade,
@@ -173,175 +117,184 @@ export class Painel {
         parada: proximoPasso === null && !SITUACOES_ENCERRADAS.includes(oportunidade.situacao),
       };
     });
+}
+
+export class Painel {
+  private readonly armazem: Armazem;
+  private readonly relogio: () => Date;
+
+  constructor(armazem: Armazem, relogio: () => Date = () => new Date()) {
+    this.armazem = armazem;
+    this.relogio = relogio;
   }
 
-  buscarOportunidade(id: number): OportunidadeComPasso {
-    const linha = this.banco.prepare('SELECT * FROM oportunidades WHERE id = ?').get(id) as LinhaOportunidade | undefined;
-    if (!linha) throw new NaoEncontrado(`Oportunidade ${id} não encontrada.`);
-    const oportunidade = paraOportunidade(linha);
-    const proximoPasso = this.proximosPassos().get(id) ?? null;
-    return {
-      ...oportunidade,
-      proximoPasso,
-      parada: proximoPasso === null && !SITUACOES_ENCERRADAS.includes(oportunidade.situacao),
-    };
+  private agoraIso(): string {
+    return this.relogio().toISOString();
   }
 
-  criarOportunidade(dados: NovaOportunidade): OportunidadeComPasso {
+  /** As Oportunidades com o próximo passo e as Tarefas abertas, lidas de uma vez só. */
+  private async carregar(): Promise<{ oportunidades: OportunidadeComPasso[]; abertas: Tarefa[] }> {
+    const [oportunidades, registros] = await Promise.all([this.armazem.listarOportunidades(), this.armazem.listarTarefas('abertas')]);
+    const abertas = montarTarefas(registros, oportunidades).sort(ordemDeTarefa);
+    return { oportunidades: comProximoPasso(oportunidades, abertas), abertas };
+  }
+
+  private async oportunidadeGuardada(id: number): Promise<Oportunidade> {
+    const oportunidade = await this.armazem.buscarOportunidade(id);
+    if (!oportunidade) throw new NaoEncontrado(`Oportunidade ${id} não encontrada.`);
+    return oportunidade;
+  }
+
+  private async tarefaGuardada(id: number): Promise<RegistroDeTarefa> {
+    const tarefa = await this.armazem.buscarTarefa(id);
+    if (!tarefa) throw new NaoEncontrado(`Tarefa ${id} não encontrada.`);
+    return tarefa;
+  }
+
+  // ---------- Oportunidades ----------
+
+  async listarOportunidades(filtro: { frente?: Frente; incluirPerdidas?: boolean } = {}): Promise<OportunidadeComPasso[]> {
+    const frente = filtro.frente ? validarFrente(filtro.frente) : null;
+    const { oportunidades } = await this.carregar();
+    return oportunidades.filter((o) => (frente === null || o.frente === frente) && (filtro.incluirPerdidas || o.situacao !== 'Perdida'));
+  }
+
+  async buscarOportunidade(id: number): Promise<OportunidadeComPasso> {
+    const [oportunidade, registros] = await Promise.all([this.oportunidadeGuardada(id), this.armazem.listarTarefas('abertas')]);
+    const abertas = registros.filter((r) => r.oportunidadeId === id).map((r) => montarTarefa(r, oportunidade));
+    return comProximoPasso([oportunidade], abertas)[0]!;
+  }
+
+  async criarOportunidade(dados: NovaOportunidade): Promise<OportunidadeComPasso> {
     const nome = texto(dados.nome);
     if (!nome) throw new ErroDeValidacao('A oportunidade precisa de um nome.');
     const agora = this.agoraIso();
-    const resultado = this.banco
-      .prepare(
-        `INSERT INTO oportunidades (nome, frente, situacao, valor_centavos, prazo, link, contato, observacoes, criada_em, atualizada_em)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        nome,
-        validarFrente(dados.frente),
-        validarSituacao(dados.situacao ?? 'Ideia'),
-        validarValor(dados.valorCentavos),
-        texto(dados.prazo),
-        texto(dados.link),
-        texto(dados.contato),
-        texto(dados.observacoes),
-        agora,
-        agora,
-      );
-    return this.buscarOportunidade(Number(resultado.lastInsertRowid));
+    const criada = await this.armazem.inserirOportunidade({
+      nome,
+      frente: validarFrente(dados.frente),
+      situacao: validarSituacao(dados.situacao ?? 'Ideia'),
+      valorCentavos: validarValor(dados.valorCentavos),
+      prazo: texto(dados.prazo),
+      link: texto(dados.link),
+      contato: texto(dados.contato),
+      observacoes: texto(dados.observacoes),
+      criadaEm: agora,
+      atualizadaEm: agora,
+    });
+    // Acabou de nascer: ainda não tem nenhuma Tarefa.
+    return comProximoPasso([criada], [])[0]!;
   }
 
-  atualizarOportunidade(id: number, mudanca: MudancaOportunidade): OportunidadeComPasso {
-    const atual = this.buscarOportunidade(id);
+  async atualizarOportunidade(id: number, mudanca: MudancaOportunidade): Promise<OportunidadeComPasso> {
+    const atual = await this.oportunidadeGuardada(id);
     const nome = mudanca.nome === undefined ? atual.nome : texto(mudanca.nome);
     if (!nome) throw new ErroDeValidacao('A oportunidade precisa de um nome.');
     const escolher = <T,>(novo: T | undefined, velho: T) => (novo === undefined ? velho : novo);
-    this.banco
-      .prepare(
-        `UPDATE oportunidades SET nome = ?, frente = ?, situacao = ?, valor_centavos = ?, prazo = ?, link = ?,
-         contato = ?, observacoes = ?, atualizada_em = ? WHERE id = ?`,
-      )
-      .run(
-        nome,
-        validarFrente(escolher(mudanca.frente, atual.frente)),
-        validarSituacao(escolher(mudanca.situacao, atual.situacao)),
-        validarValor(escolher(mudanca.valorCentavos, atual.valorCentavos)),
-        mudanca.prazo === undefined ? atual.prazo : texto(mudanca.prazo),
-        mudanca.link === undefined ? atual.link : texto(mudanca.link),
-        mudanca.contato === undefined ? atual.contato : texto(mudanca.contato),
-        mudanca.observacoes === undefined ? atual.observacoes : texto(mudanca.observacoes),
-        this.agoraIso(),
-        id,
-      );
+    await this.armazem.gravarOportunidade({
+      id,
+      nome,
+      frente: validarFrente(escolher(mudanca.frente, atual.frente)),
+      situacao: validarSituacao(escolher(mudanca.situacao, atual.situacao)),
+      valorCentavos: validarValor(escolher(mudanca.valorCentavos, atual.valorCentavos)),
+      prazo: mudanca.prazo === undefined ? atual.prazo : texto(mudanca.prazo),
+      link: mudanca.link === undefined ? atual.link : texto(mudanca.link),
+      contato: mudanca.contato === undefined ? atual.contato : texto(mudanca.contato),
+      observacoes: mudanca.observacoes === undefined ? atual.observacoes : texto(mudanca.observacoes),
+      criadaEm: atual.criadaEm,
+      atualizadaEm: this.agoraIso(),
+    });
     return this.buscarOportunidade(id);
-  }
-
-  /** O próximo passo de cada Oportunidade: a Tarefa aberta mais próxima. */
-  private proximosPassos(): Map<number, Tarefa> {
-    const linhas = this.banco
-      .prepare(`${SELECT_TAREFA} WHERE t.feita_em IS NULL AND t.oportunidade_id IS NOT NULL ${ORDEM_TAREFA}`)
-      .all() as unknown as LinhaTarefa[];
-    const passos = new Map<number, Tarefa>();
-    for (const linha of linhas) {
-      if (!passos.has(linha.oportunidade_id!)) passos.set(linha.oportunidade_id!, paraTarefa(linha));
-    }
-    return passos;
   }
 
   // ---------- Tarefas ----------
 
-  listarTarefas(filtro: { estado?: 'abertas' | 'feitas' | 'todas'; frente?: Frente | 'sem-frente'; oportunidadeId?: number } = {}): Tarefa[] {
+  async listarTarefas(
+    filtro: { estado?: 'abertas' | 'feitas' | 'todas'; frente?: Frente | 'sem-frente'; oportunidadeId?: number } = {},
+  ): Promise<Tarefa[]> {
     const estado = filtro.estado ?? 'abertas';
-    const condicoes: string[] = [];
-    const parametros: SQLInputValue[] = [];
-    if (estado === 'abertas') condicoes.push('t.feita_em IS NULL');
-    if (estado === 'feitas') condicoes.push('t.feita_em IS NOT NULL');
-    if (filtro.oportunidadeId !== undefined) {
-      condicoes.push('t.oportunidade_id = ?');
-      parametros.push(filtro.oportunidadeId);
-    }
-    if (filtro.frente === 'sem-frente') condicoes.push('COALESCE(o.frente, t.frente) IS NULL');
-    else if (filtro.frente) {
-      condicoes.push('COALESCE(o.frente, t.frente) = ?');
-      parametros.push(validarFrente(filtro.frente));
-    }
-    const where = condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : '';
-    const ordem = estado === 'feitas' ? 'ORDER BY t.feita_em DESC' : ORDEM_TAREFA;
-    const linhas = this.banco.prepare(`${SELECT_TAREFA} ${where} ${ordem}`).all(...parametros) as unknown as LinhaTarefa[];
-    return linhas.map(paraTarefa);
+    const frente = filtro.frente === undefined || filtro.frente === 'sem-frente' ? null : validarFrente(filtro.frente);
+    const [registros, oportunidades] = await Promise.all([this.armazem.listarTarefas(estado), this.armazem.listarOportunidades()]);
+    const tarefas = montarTarefas(registros, oportunidades).filter((t) => {
+      if (filtro.oportunidadeId !== undefined && t.oportunidadeId !== filtro.oportunidadeId) return false;
+      if (filtro.frente === 'sem-frente') return t.frente === null;
+      return frente === null || t.frente === frente;
+    });
+    // As feitas aparecem da mais recente para a mais antiga.
+    if (estado === 'feitas') return tarefas.sort((a, b) => (a.feitaEm! < b.feitaEm! ? 1 : a.feitaEm! > b.feitaEm! ? -1 : b.id - a.id));
+    return tarefas.sort(ordemDeTarefa);
   }
 
-  buscarTarefa(id: number): Tarefa {
-    const linha = this.banco.prepare(`${SELECT_TAREFA} WHERE t.id = ?`).get(id) as LinhaTarefa | undefined;
-    if (!linha) throw new NaoEncontrado(`Tarefa ${id} não encontrada.`);
-    return paraTarefa(linha);
+  async buscarTarefa(id: number): Promise<Tarefa> {
+    const registro = await this.tarefaGuardada(id);
+    const oportunidade = registro.oportunidadeId === null ? null : await this.armazem.buscarOportunidade(registro.oportunidadeId);
+    return montarTarefa(registro, oportunidade);
   }
 
-  criarTarefa(dados: NovaTarefa): Tarefa {
+  async criarTarefa(dados: NovaTarefa): Promise<Tarefa> {
     const titulo = texto(dados.titulo);
     if (!titulo) throw new ErroDeValidacao('A tarefa precisa de um título.');
     const dia = texto(dados.dia);
     const hora = texto(dados.hora);
     validarDiaEHora(dia, hora);
-    const oportunidadeId = dados.oportunidadeId ?? null;
-    if (oportunidadeId !== null) this.buscarOportunidade(oportunidadeId);
     const frente = dados.frente ? validarFrente(dados.frente) : null;
-    const resultado = this.banco
-      .prepare(
-        `INSERT INTO tarefas (titulo, dia, hora, oportunidade_id, repositorio, frente, criada_em)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(titulo, dia, hora, oportunidadeId, texto(dados.repositorio), frente, this.agoraIso());
-    return this.buscarTarefa(Number(resultado.lastInsertRowid));
+    const oportunidadeId = dados.oportunidadeId ?? null;
+    const oportunidade = oportunidadeId === null ? null : await this.oportunidadeGuardada(oportunidadeId);
+    const registro = await this.armazem.inserirTarefa({
+      titulo,
+      dia,
+      hora,
+      oportunidadeId,
+      repositorio: texto(dados.repositorio),
+      frente,
+      naAgenda: false,
+      feitaEm: null,
+      criadaEm: this.agoraIso(),
+    });
+    return montarTarefa(registro, oportunidade);
   }
 
-  atualizarTarefa(id: number, mudanca: MudancaTarefa): Tarefa {
-    const atual = this.buscarTarefa(id);
-    const linhaAtual = this.banco.prepare('SELECT frente FROM tarefas WHERE id = ?').get(id) as { frente: string | null };
+  async atualizarTarefa(id: number, mudanca: MudancaTarefa): Promise<Tarefa> {
+    const atual = await this.tarefaGuardada(id);
     const titulo = mudanca.titulo === undefined ? atual.titulo : texto(mudanca.titulo);
     if (!titulo) throw new ErroDeValidacao('A tarefa precisa de um título.');
     const dia = mudanca.dia === undefined ? atual.dia : texto(mudanca.dia);
     // Tirar o dia também tira a hora.
     const hora = mudanca.hora === undefined ? (dia === null ? null : atual.hora) : texto(mudanca.hora);
     validarDiaEHora(dia, hora);
+    const frente = mudanca.frente === undefined ? atual.frente : mudanca.frente ? validarFrente(mudanca.frente) : null;
     const oportunidadeId = mudanca.oportunidadeId === undefined ? atual.oportunidadeId : mudanca.oportunidadeId;
-    if (oportunidadeId !== null) this.buscarOportunidade(oportunidadeId);
-    const frente = mudanca.frente === undefined ? linhaAtual.frente : mudanca.frente ? validarFrente(mudanca.frente) : null;
+    const oportunidade = oportunidadeId === null ? null : await this.oportunidadeGuardada(oportunidadeId);
     const feitaEm = mudanca.feita === undefined ? atual.feitaEm : mudanca.feita ? (atual.feitaEm ?? this.agoraIso()) : null;
     // Mudar dia ou hora invalida o compromisso que já foi para o Google Agenda.
     const mudouHorario = dia !== atual.dia || hora !== atual.hora;
     const naAgenda = mudanca.naAgenda ?? (mudouHorario ? false : atual.naAgenda);
-    this.banco
-      .prepare(
-        `UPDATE tarefas SET titulo = ?, dia = ?, hora = ?, oportunidade_id = ?, repositorio = ?, frente = ?,
-         na_agenda = ?, feita_em = ? WHERE id = ?`,
-      )
-      .run(
-        titulo,
-        dia,
-        hora,
-        oportunidadeId,
-        mudanca.repositorio === undefined ? atual.repositorio : texto(mudanca.repositorio),
-        frente,
-        naAgenda && hora !== null ? 1 : 0,
-        feitaEm,
-        id,
-      );
-    return this.buscarTarefa(id);
+    const nova: RegistroDeTarefa = {
+      id,
+      titulo,
+      dia,
+      hora,
+      oportunidadeId,
+      repositorio: mudanca.repositorio === undefined ? atual.repositorio : texto(mudanca.repositorio),
+      frente,
+      naAgenda: naAgenda && hora !== null,
+      feitaEm,
+      criadaEm: atual.criadaEm,
+    };
+    await this.armazem.gravarTarefa(nova);
+    return montarTarefa(nova, oportunidade);
   }
 
-  apagarTarefa(id: number): void {
-    this.buscarTarefa(id);
-    this.banco.prepare('DELETE FROM tarefas WHERE id = ?').run(id);
+  async apagarTarefa(id: number): Promise<void> {
+    await this.tarefaGuardada(id);
+    await this.armazem.apagarTarefa(id);
   }
 
   // ---------- Hoje ----------
 
-  hoje(): Hoje {
+  async hoje(): Promise<Hoje> {
     const dia = diaDeHoje(this.relogio());
     const limite = somarDias(dia, DIAS_DE_PROXIMOS);
-    const abertas = this.listarTarefas({ estado: 'abertas' });
-    const oportunidades = this.listarOportunidades({ incluirPerdidas: true });
+    const { oportunidades, abertas } = await this.carregar();
     const ativas = oportunidades.filter((o) => o.situacao !== 'Perdida' && o.situacao !== 'Avaliada');
     return {
       dia,
@@ -362,29 +315,24 @@ export class Painel {
 
   // ---------- Repositórios e preferências ----------
 
-  frentesDosRepositorios(): Map<string, Frente | null> {
-    const linhas = this.banco.prepare('SELECT nome, frente FROM repositorio_frente').all() as { nome: string; frente: string | null }[];
-    return new Map(linhas.map((l) => [l.nome, l.frente as Frente | null]));
+  frentesDosRepositorios(): Promise<Map<string, Frente | null>> {
+    return this.armazem.frentesDosRepositorios();
   }
 
-  definirFrenteDoRepositorio(nome: string, frente: Frente | null): void {
+  async definirFrenteDoRepositorio(nome: string, frente: Frente | null): Promise<void> {
     const limpo = texto(nome);
     if (!limpo) throw new ErroDeValidacao('Informe o nome do repositório.');
-    this.banco
-      .prepare('INSERT INTO repositorio_frente (nome, frente) VALUES (?, ?) ON CONFLICT(nome) DO UPDATE SET frente = excluded.frente')
-      .run(limpo, frente === null ? null : validarFrente(frente));
+    await this.armazem.gravarFrenteDoRepositorio(limpo, frente === null ? null : validarFrente(frente));
   }
 
-  tema(): Tema {
-    const linha = this.banco.prepare(`SELECT valor FROM preferencias WHERE chave = 'tema'`).get() as { valor: string } | undefined;
-    return TEMAS.includes(linha?.valor as Tema) ? (linha!.valor as Tema) : 'coral';
+  async tema(): Promise<Tema> {
+    const valor = await this.armazem.lerPreferencia('tema');
+    return TEMAS.includes(valor as Tema) ? (valor as Tema) : 'coral';
   }
 
-  definirTema(tema: Tema): Tema {
+  async definirTema(tema: Tema): Promise<Tema> {
     if (!TEMAS.includes(tema)) throw new ErroDeValidacao(`Tema inválido. Use ${TEMAS.join(', ')}.`);
-    this.banco
-      .prepare(`INSERT INTO preferencias (chave, valor) VALUES ('tema', ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`)
-      .run(tema);
+    await this.armazem.gravarPreferencia('tema', tema);
     return tema;
   }
 
@@ -399,3 +347,4 @@ export class Painel {
     });
   }
 }
+

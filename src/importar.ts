@@ -1,8 +1,10 @@
 // Importação única dos dados iniciais (por exemplo, do "Quadro do Freelance").
 // Uso: npm run importar -- caminho/do/arquivo.json
 // Formato: veja importacao.exemplo.json. O arquivo real fica em dados/, fora do git.
+// Grava sempre no SQLite do PC. Para levar o SQLite para o repositório de dados: npm run copiar-para-o-github.
 
 import { readFileSync } from 'node:fs';
+import { ArmazemSqlite } from './dominio/armazem-sqlite.ts';
 import { abrirBanco } from './dominio/banco.ts';
 import { Painel } from './dominio/painel.ts';
 import type { NovaOportunidade, NovaTarefa } from './dominio/tipos.ts';
@@ -26,24 +28,24 @@ if (total > 0 && !process.argv.includes('--forcar')) {
   process.exit(1);
 }
 
-const painel = new Painel(banco);
+const painel = new Painel(new ArmazemSqlite(banco));
 let oportunidades = 0;
 let tarefas = 0;
 
 banco.exec('BEGIN');
 try {
-  const criarTarefa = (t: NovaTarefa & { naAgenda?: boolean }) => {
+  const criarTarefa = async (t: NovaTarefa & { naAgenda?: boolean }) => {
     const { naAgenda, ...nova } = t;
-    const criada = painel.criarTarefa(nova);
-    if (naAgenda) painel.atualizarTarefa(criada.id, { naAgenda: true });
+    const criada = await painel.criarTarefa(nova);
+    if (naAgenda) await painel.atualizarTarefa(criada.id, { naAgenda: true });
     tarefas++;
   };
   for (const { tarefas: daOportunidade = [], ...oportunidade } of dados.oportunidades) {
-    const criada = painel.criarOportunidade(oportunidade);
+    const criada = await painel.criarOportunidade(oportunidade);
     oportunidades++;
-    for (const t of daOportunidade) criarTarefa({ ...t, oportunidadeId: criada.id });
+    for (const t of daOportunidade) await criarTarefa({ ...t, oportunidadeId: criada.id });
   }
-  for (const t of dados.tarefas ?? []) criarTarefa(t);
+  for (const t of dados.tarefas ?? []) await criarTarefa(t);
   banco.exec('COMMIT');
 } catch (erro) {
   banco.exec('ROLLBACK');

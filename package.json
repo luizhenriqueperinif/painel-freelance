@@ -14,6 +14,7 @@
     "servidor": "node src/servidor/index.ts",
     "mcp": "node src/mcp/index.ts",
     "importar": "node src/importar.ts",
+    "copiar-para-o-github": "node src/copiar-para-o-github.ts",
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },

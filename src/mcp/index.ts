@@ -5,12 +5,16 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { abrirBanco } from '../dominio/banco.ts';
+import { abrirArmazem } from '../dominio/abrir-armazem.ts';
 import { Painel } from '../dominio/painel.ts';
 import { lerConfiguracao, lerRepositorios } from '../dominio/repositorios.ts';
 import { FRENTES, SITUACOES } from '../dominio/tipos.ts';
 
-const painel = new Painel(abrirBanco());
+// O painel só abre na primeira ferramenta chamada. Se a configuração do armazém estiver errada,
+// o servidor continua de pé e a ferramenta devolve a explicação.
+let painelAberto: Painel | null = null;
+const painel = () => (painelAberto ??= new Painel(abrirArmazem()));
+
 const servidor = new McpServer({ name: 'painel-freelance', version: '0.1.0' });
 
 const frente = z.enum(FRENTES);
@@ -37,7 +41,7 @@ servidor.registerTool(
     description: 'Tarefas de hoje, atrasadas, dos próximos 7 dias e sem data, oportunidades paradas e os contadores das frentes.',
     inputSchema: {},
   },
-  () => seguro(() => painel.hoje()),
+  () => seguro(() => painel().hoje()),
 );
 
 servidor.registerTool(
@@ -47,7 +51,7 @@ servidor.registerTool(
     description: 'Lista as oportunidades com situação, valor (em centavos) e próximo passo. Perdidas ficam de fora, a não ser que peça.',
     inputSchema: { frente: frente.optional(), incluirPerdidas: z.boolean().optional() },
   },
-  (args) => seguro(() => painel.listarOportunidades(args)),
+  (args) => seguro(() => painel().listarOportunidades(args)),
 );
 
 servidor.registerTool(
@@ -66,7 +70,7 @@ servidor.registerTool(
       observacoes: z.string().nullable().optional(),
     },
   },
-  (args) => seguro(() => painel.criarOportunidade(args)),
+  (args) => seguro(() => painel().criarOportunidade(args)),
 );
 
 servidor.registerTool(
@@ -86,7 +90,7 @@ servidor.registerTool(
       observacoes: z.string().nullable().optional(),
     },
   },
-  ({ id, ...mudanca }) => seguro(() => painel.atualizarOportunidade(id, mudanca)),
+  ({ id, ...mudanca }) => seguro(() => painel().atualizarOportunidade(id, mudanca)),
 );
 
 servidor.registerTool(
@@ -100,7 +104,7 @@ servidor.registerTool(
       oportunidadeId: z.number().int().optional(),
     },
   },
-  (args) => seguro(() => painel.listarTarefas(args)),
+  (args) => seguro(() => painel().listarTarefas(args)),
 );
 
 servidor.registerTool(
@@ -118,7 +122,7 @@ servidor.registerTool(
       frente: frente.nullable().optional(),
     },
   },
-  (args) => seguro(() => painel.criarTarefa(args)),
+  (args) => seguro(() => painel().criarTarefa(args)),
 );
 
 servidor.registerTool(
@@ -137,7 +141,7 @@ servidor.registerTool(
       feita: z.boolean().optional(),
     },
   },
-  ({ id, ...mudanca }) => seguro(() => painel.atualizarTarefa(id, mudanca)),
+  ({ id, ...mudanca }) => seguro(() => painel().atualizarTarefa(id, mudanca)),
 );
 
 servidor.registerTool(
@@ -148,7 +152,7 @@ servidor.registerTool(
       'Lê os repositórios do PC (só leitura): tecnologia, último commit, inativo, mudanças não salvas, GitHub e nomes de arquivos de segredo que estão indo para o git.',
     inputSchema: {},
   },
-  () => seguro(() => lerRepositorios(lerConfiguracao(), painel.frentesDosRepositorios())),
+  () => seguro(async () => lerRepositorios(lerConfiguracao(), await painel().frentesDosRepositorios())),
 );
 
 await servidor.connect(new StdioServerTransport());

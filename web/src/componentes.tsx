@@ -3,8 +3,20 @@ import type { Tarefa } from '../../src/dominio/tipos.ts';
 import { api } from './api.ts';
 import { quando } from './formato.ts';
 
-/** Carrega dados e recarrega quando chamado. */
-export function useCarregar<T>(buscar: () => Promise<T>, dependencias: unknown[] = []) {
+const PEDIDO_DE_ATUALIZACAO = 'painel:atualizar';
+const PAUSA_ENTRE_VOLTAS_MS = 2000;
+
+/** O botão "atualizar" do topo: a tela aberta busca os dados de novo. */
+export function pedirAtualizacao() {
+  window.dispatchEvent(new Event(PEDIDO_DE_ATUALIZACAO));
+}
+
+/**
+ * Carrega dados e recarrega quando chamado. Também recarrega pelo botão "atualizar" e,
+ * a não ser que aoVoltar seja false, quando a janela volta ao foco: é assim que aparece
+ * o que mudou em outro aparelho ou pelo Claude.
+ */
+export function useCarregar<T>(buscar: () => Promise<T>, dependencias: unknown[] = [], opcoes: { aoVoltar?: boolean } = {}) {
   const [dados, setDados] = useState<T | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -25,6 +37,31 @@ export function useCarregar<T>(buscar: () => Promise<T>, dependencias: unknown[]
   useEffect(() => {
     void recarregar();
   }, [recarregar]);
+
+  const aoVoltar = opcoes.aoVoltar !== false;
+  useEffect(() => {
+    let ultima = Date.now();
+    // Foco e visibilidade costumam chegar juntos: a pausa evita buscar duas vezes.
+    const voltou = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - ultima < PAUSA_ENTRE_VOLTAS_MS) return;
+      ultima = Date.now();
+      void recarregar();
+    };
+    const pedido = () => {
+      ultima = Date.now();
+      void recarregar();
+    };
+    window.addEventListener(PEDIDO_DE_ATUALIZACAO, pedido);
+    if (aoVoltar) {
+      window.addEventListener('focus', voltou);
+      document.addEventListener('visibilitychange', voltou);
+    }
+    return () => {
+      window.removeEventListener(PEDIDO_DE_ATUALIZACAO, pedido);
+      window.removeEventListener('focus', voltou);
+      document.removeEventListener('visibilitychange', voltou);
+    };
+  }, [recarregar, aoVoltar]);
 
   return { dados, erro, carregando, recarregar };
 }

@@ -129,6 +129,14 @@ export class ErroDeValidacao extends Error {
   }
 }
 
+/** O lugar onde os dados moram não respondeu ou recusou o pedido (sem internet, sem acesso...). */
+export class ErroDeArmazenamento extends Error {
+  constructor(mensagem: string) {
+    super(mensagem);
+    this.name = 'ErroDeArmazenamento';
+  }
+}
+
 export class NaoEncontrado extends Error {
   constructor(mensagem: string) {
     super(mensagem);

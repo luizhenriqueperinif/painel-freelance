@@ -41,3 +41,11 @@ _Evite_: projeto, pasta, repo
 **Repositório inativo**:
 Um Repositório sem commit há mais de 30 dias.
 _Evite_: parado, abandonado
+
+**Armazém**:
+O lugar onde os dados do painel ficam guardados: o SQLite do PC ou o arquivo no Repositório de dados. Só guarda e devolve; as regras ficam no Painel.
+_Evite_: repositório (aqui é a pasta de código), banco, store
+
+**Repositório de dados**:
+O repositório privado do GitHub, na conta de quem usa o painel, que guarda o arquivo com as oportunidades e tarefas. Não é um Repositório do painel: não tem código e não aparece na tela Repositórios.
+_Evite_: banco, nuvem, backup

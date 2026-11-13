@@ -6,8 +6,9 @@ import { Erro, useCarregar } from '../componentes.tsx';
 import { tempoRelativo } from '../formato.ts';
 
 export function PaginaRepositorios() {
-  // Relê as pastas toda vez que a tela abre e pelo botão "Atualizar". Nada roda em segundo plano.
-  const { dados, erro, carregando, recarregar } = useCarregar(() => api.repositorios());
+  // Relê as pastas toda vez que a tela abre e pelo botão "Atualizar". Nada roda em segundo plano,
+  // nem quando a janela volta ao foco: ler todas as pastas é pesado.
+  const { dados, erro, carregando, recarregar } = useCarregar(() => api.repositorios(), [], { aoVoltar: false });
   const repositorios = dados?.repositorios ?? [];
   const inativos = repositorios.filter((r) => r.inativo).length;
   const semGit = repositorios.filter((r) => r.existe && !r.temGit).length;
